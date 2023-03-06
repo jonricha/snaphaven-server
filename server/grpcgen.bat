@@ -1,0 +1,1 @@
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. filesync/filesync.proto
