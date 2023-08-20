@@ -4,3 +4,5 @@ openssl req -new -key server_key.pem -days 3650 -out server_csr.pem -subj /C=US/
 openssl x509 -req -in server_csr.pem -CAkey ca_key.pem -CA ca_cert.pem -days 3650 -set_serial 1000 -out server_cert.pem -extfile .\openssl.cnf -extensions test_server -sha256
 openssl verify -verbose -CAfile ca_cert.pem  server_cert.pem
 del *_csr.pem
+mkdir certs
+move *.pem certs\

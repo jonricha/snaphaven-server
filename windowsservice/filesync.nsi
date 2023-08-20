@@ -14,15 +14,17 @@ SetOutPath $INSTDIR
 File filesyncservice.exe
 File filesyncservice.xml
 File filesyncserver.exe
-
+File createservercerts.bat
+File createclientcert.bat
+File openssl.cnf
  
 # define uninstaller name
 WriteUninstaller $INSTDIR\uninstaller.exe
 
 #install the service
 Exec '"$INSTDIR\filesyncservice.exe" install'
-Sleep 1000
-Exec '"$INSTDIR\filesyncservice.exe" start'
+#Sleep 1000
+#Exec '"$INSTDIR\filesyncservice.exe" start'
  
 #-------
 # default section end
@@ -42,6 +44,9 @@ Sleep 1000
 Delete $INSTDIR\*.exe
 Delete $INSTDIR\*.xml
 Delete $INSTDIR\*.log
+Delete $INSTDIR\*.bat
+Delete $INSTDIR\*.cnf
+Delete $INSTDIR\*.pem
  
 # Delete the uninstaller
 Delete $INSTDIR\uninstaller.exe
