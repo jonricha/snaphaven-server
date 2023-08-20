@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 type server struct {
@@ -109,7 +110,19 @@ func RegisterServer(commonSyncDir string, port string) (*grpc.Server, net.Listen
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	s := grpc.NewServer()
+	path, err := os.Getwd()
+	if err != nil {
+		log.Println(err)
+	}
+	log.Println(path)
+	creds, err := credentials.NewServerTLSFromFile(filepath.Join(path, "certs", "server_cert.pem"), filepath.Join(path, "certs", "server_key.pem"))
+	if err != nil {
+		log.Printf("Failed to generate credentials: %v", err)
+		return nil, lis
+	}
+	var opts []grpc.ServerOption
+	opts = []grpc.ServerOption{grpc.Creds(creds)}
+	s := grpc.NewServer(opts...)
 	pb.RegisterFileSyncServer(s, &server{syncdir: commonSyncDir})
 	log.Printf("server listening at %v, serving %v", lis.Addr(), commonSyncDir)
 	return s, lis

@@ -11,11 +11,17 @@ import (
 	pb "filesync/server/filesync"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
 func startClient(t *testing.T, port string) (*grpc.ClientConn, pb.FileSyncClient, context.Context, context.CancelFunc) {
-	conn, err := grpc.Dial("localhost"+port, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var opts []grpc.DialOption
+	creds, err := credentials.NewClientTLSFromFile("certs/ca_cert.pem", "x.test.example.com")
+	if err != nil {
+		t.Fatalf("failed to create TLS credentials: %v", err)
+	}
+	opts = append(opts, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.Dial("localhost"+port, opts...)
 	if err != nil {
 		t.Fatalf("did not connect: %v", err)
 	}
@@ -33,7 +39,7 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context
 		t.Fatal(err)
 	}
 
-	port := ":50005"
+	port := ":50010"
 	failurechannel := make(chan error, 1)
 	s, lis := RegisterServer(tempdir, port)
 	go func() {
