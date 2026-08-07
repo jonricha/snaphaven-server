@@ -10,8 +10,103 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"os"
 	"time"
 )
+
+func writecerts(organisation string, country string, province string, locality string, streeaddress string, postalcode string, dnsnames []string) error {
+	// set up our CA certificate
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(2019),
+		Subject: pkix.Name{
+			Organization:  []string{organisation},
+			Country:       []string{country},
+			Province:      []string{province},
+			Locality:      []string{locality},
+			StreetAddress: []string{streeaddress},
+			PostalCode:    []string{postalcode},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		DNSNames:              dnsnames,
+	}
+
+	// create our private and public key
+	caPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return err
+	}
+
+	// create the CA
+	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return err
+	}
+
+	// pem encode
+	caPemFile, _ := os.Create("ca_cert.pem")
+	pem.Encode(caPemFile, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caBytes,
+	})
+	caPemFile.Close()
+
+	caPrivKeyFile, _ := os.Create("ca_key.pem")
+	pem.Encode(caPrivKeyFile, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(caPrivKey),
+	})
+	caPrivKeyFile.Close()
+
+	// set up our server certificate
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(2019),
+		Subject: pkix.Name{
+			Organization:  []string{organisation},
+			Country:       []string{country},
+			Province:      []string{province},
+			Locality:      []string{locality},
+			StreetAddress: []string{streeaddress},
+			PostalCode:    []string{postalcode},
+		},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		DNSNames:     dnsnames,
+	}
+
+	certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return err
+	}
+
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, &certPrivKey.PublicKey, caPrivKey)
+	if err != nil {
+		return err
+	}
+
+	certPrivKeyFile, _ := os.Create("server_key.pem")
+	pem.Encode(certPrivKeyFile, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey),
+	})
+	certPrivKeyFile.Close()
+
+	serverCertPemFile, _ := os.Create("server_cert.pem")
+	pem.Encode(serverCertPemFile, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+	serverCertPemFile.Close()
+	return nil
+}
 
 func certsetup(organisation string, country string, province string, locality string, streeaddress string, postalcode string) (serverTLSConf *tls.Config, clientTLSConf *tls.Config, err error) {
 	// set up our CA certificate

@@ -2,6 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,12 +21,49 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func startClient(t *testing.T, port string) (*grpc.ClientConn, pb.FileSyncClient, context.Context, context.CancelFunc) {
-	var opts []grpc.DialOption
-	creds, err := credentials.NewClientTLSFromFile("certs/ca_cert.pem", "x.test.example.com")
+func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, pb.FileSyncClient, context.Context, context.CancelFunc) {
+	// Create client CSR and ask CertManager to sign it for mTLS test
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		t.Fatalf("failed to create TLS credentials: %v", err)
+		t.Fatalf("failed to generate client key: %v", err)
 	}
+
+	csrTemplate := x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "TestClient"},
+	}
+	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, clientKey)
+	if err != nil {
+		t.Fatalf("failed to create CSR: %v", err)
+	}
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
+
+	clientCertBundlePEM, err := cm.SignClientCSR(csrPEM)
+	if err != nil {
+		t.Fatalf("failed to sign client CSR: %v", err)
+	}
+
+	clientKeyBytes, err := x509.MarshalECPrivateKey(clientKey)
+	if err != nil {
+		t.Fatalf("failed to marshal client key: %v", err)
+	}
+	clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: clientKeyBytes})
+
+	tlsCert, err := tls.X509KeyPair(clientCertBundlePEM, clientKeyPEM)
+	if err != nil {
+		t.Fatalf("failed to load client keypair: %v", err)
+	}
+
+	caPool := x509.NewCertPool()
+	caPool.AddCert(cm.CACert)
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		RootCAs:      caPool,
+		ServerName:   "localhost",
+	}
+
+	creds := credentials.NewTLS(tlsConfig)
+	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(creds))
 	conn, err := grpc.Dial("localhost"+port, opts...)
 	if err != nil {
@@ -29,7 +73,6 @@ func startClient(t *testing.T, port string) (*grpc.ClientConn, pb.FileSyncClient
 	// Contact the server
 	ctx, cancel := context.WithCancel(context.Background())
 	return conn, pb.NewFileSyncClient(conn), ctx, cancel
-
 }
 
 func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context.Context) {
@@ -39,9 +82,19 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context
 		t.Fatal(err)
 	}
 
+	certdir, err := ioutil.TempDir("", "filesync_test_certs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cm, err := NewCertManager(certdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	port := ":50010"
 	failurechannel := make(chan error, 1)
-	s, lis := RegisterServer(tempdir, port)
+	s, lis := RegisterServer(tempdir, port, cm)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			failurechannel <- err
@@ -54,7 +107,7 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context
 	default:
 		t.Log("Server up and running")
 	}
-	conn, client, ctx, cancel := startClient(t, port)
+	conn, client, ctx, cancel := startClient(t, port, cm)
 
 	t.Log("setupTestCase <<")
 	return func(t *testing.T) {
@@ -66,6 +119,7 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context
 		t.Log("gracefully stop the server")
 		s.GracefulStop()
 		os.RemoveAll(tempdir)
+		os.RemoveAll(certdir)
 		t.Log("teardown <<")
 	}, client, ctx
 }
