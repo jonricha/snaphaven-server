@@ -142,6 +142,13 @@ func main() {
 	log.Printf("🚀 Starting SnapHaven Server Application %s...", GetFormattedVersion())
 	log.Printf("==================================================")
 
+	// Ensure only one instance of SnapHaven Server runs at a time
+	_, isSingle := EnsureSingleInstance()
+	if !isSingle {
+		log.Printf("⚠️ Another instance of SnapHaven Server is already running. Exiting duplicate process.")
+		os.Exit(0)
+	}
+
 	// 2. Load / Create Configuration
 	configMgr, err := NewConfigManager("")
 	if err != nil {

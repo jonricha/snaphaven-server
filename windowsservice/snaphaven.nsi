@@ -64,6 +64,10 @@ Function EscapeJsonString
 FunctionEnd
 
 Section "MainSection" SEC01
+  # Terminate any existing running instances of SnapHaven Server
+  ExecWait 'taskkill /F /IM snaphaven.exe'
+  Sleep 1000
+
   SetOutPath $INSTDIR
   File snaphaven.exe
 

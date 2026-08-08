@@ -348,6 +348,13 @@ func (um *UpdateManager) ApplyUpdate() error {
 	}
 
 	LogEvent("🔄 Update installer launched. Server will restart shortly...")
+
+	// Exit current process after 1 second so installer can replace binary and launch new instance cleanly
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
+
 	return nil
 }
 
