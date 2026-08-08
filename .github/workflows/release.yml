@@ -23,7 +23,9 @@ jobs:
           go-version: '1.21'
 
       - name: Install NSIS
-        run: choco install nsis -y
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Build Go Server Executable
         run: |
@@ -34,7 +36,12 @@ jobs:
       - name: Compile NSIS Installer
         run: |
           cd windowsservice
-          makensis filesync.nsi
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (Test-Path $makensis) {
+            & $makensis filesync.nsi
+          } else {
+            makensis filesync.nsi
+          }
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
