@@ -32,7 +32,8 @@ jobs:
         run: |
           cd server
           $TAG = if ("${{ github.ref_name }}" -ne "") { "${{ github.ref_name }}" } else { "v1.0.0" }
-          go build -ldflags "-X main.Version=$TAG -X main.Commit=${{ github.sha }} -H=windowsgui" -o snaphaven.exe .
+          $BUILDDATE = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss UTC")
+          go build -ldflags "-X 'main.Version=$TAG' -X 'main.Commit=${{ github.sha }}' -X 'main.BuildTime=$BUILDDATE' -H=windowsgui" -o snaphaven.exe .
           Copy-Item snaphaven.exe ..\windowsservice\snaphaven.exe -Force
 
       - name: Compile NSIS Installer

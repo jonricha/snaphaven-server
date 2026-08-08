@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,20 @@ var (
 	Commit    = "none"
 	BuildTime = "unknown"
 )
+
+func init() {
+	// Fallback to Go's embedded VCS build info if not injected via -ldflags
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if (Commit == "" || Commit == "none") && setting.Key == "vcs.revision" {
+				Commit = setting.Value
+			}
+			if (BuildTime == "" || BuildTime == "unknown") && setting.Key == "vcs.time" {
+				BuildTime = setting.Value
+			}
+		}
+	}
+}
 
 // GetVersion returns the current version string
 func GetVersion() string {
