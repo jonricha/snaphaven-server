@@ -1,5 +1,5 @@
 # define installer name
-OutFile "PhotoSyncInstaller_v8.exe"
+OutFile "PhotoSyncInstaller.exe"
  
 # set program files as install directory
 InstallDir $PROGRAMFILES\FileSyncServer

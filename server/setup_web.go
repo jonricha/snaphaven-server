@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -44,19 +45,122 @@ func GenerateToken() (string, error) {
 }
 
 func GetLocalIPs() []string {
-	var ips []string
-	addrs, err := net.InterfaceAddrs()
+	var homeLANIPs []string
+	var physicalIPs []string
+	var fallbackIPs []string
+
+	ifaces, err := net.Interfaces()
 	if err != nil {
-		return ips
+		return physicalIPs
 	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				ips = append(ips, ipnet.IP.String())
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		nameLower := strings.ToLower(iface.Name)
+		isVirtualOrVPN := iface.Flags&net.FlagPointToPoint != 0 ||
+			strings.Contains(nameLower, "vpn") ||
+			strings.Contains(nameLower, "tun") ||
+			strings.Contains(nameLower, "tap") ||
+			strings.Contains(nameLower, "wireguard") ||
+			strings.Contains(nameLower, "wg") ||
+			strings.Contains(nameLower, "tailscale") ||
+			strings.Contains(nameLower, "zerotier") ||
+			strings.Contains(nameLower, "cisco") ||
+			strings.Contains(nameLower, "globalprotect") ||
+			strings.Contains(nameLower, "vbox") ||
+			strings.Contains(nameLower, "vmnet") ||
+			strings.Contains(nameLower, "hyper-v") ||
+			strings.Contains(nameLower, "vethernet") ||
+			strings.Contains(nameLower, "wsl") ||
+			strings.Contains(nameLower, "virtual") ||
+			strings.Contains(nameLower, "pseudo") ||
+			strings.Contains(nameLower, "bridge") ||
+			strings.Contains(nameLower, "forti") ||
+			strings.Contains(nameLower, "pulse") ||
+			strings.Contains(nameLower, "secu") ||
+			strings.Contains(nameLower, "openvpn")
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					ipStr := ipnet.IP.String()
+					if isVirtualOrVPN {
+						fallbackIPs = append(fallbackIPs, ipStr)
+					} else if strings.HasPrefix(ipStr, "192.168.") {
+						homeLANIPs = append(homeLANIPs, ipStr)
+					} else {
+						physicalIPs = append(physicalIPs, ipStr)
+					}
+				}
 			}
 		}
 	}
-	return ips
+
+	result := append(homeLANIPs, physicalIPs...)
+	return append(result, fallbackIPs...)
+}
+
+func GetPrimarySubnet() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	var fallbackSubnet string
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		nameLower := strings.ToLower(iface.Name)
+		isVirtualOrVPN := iface.Flags&net.FlagPointToPoint != 0 ||
+			strings.Contains(nameLower, "vpn") ||
+			strings.Contains(nameLower, "tun") ||
+			strings.Contains(nameLower, "tap") ||
+			strings.Contains(nameLower, "wireguard") ||
+			strings.Contains(nameLower, "wg") ||
+			strings.Contains(nameLower, "tailscale") ||
+			strings.Contains(nameLower, "zerotier") ||
+			strings.Contains(nameLower, "cisco") ||
+			strings.Contains(nameLower, "globalprotect") ||
+			strings.Contains(nameLower, "vbox") ||
+			strings.Contains(nameLower, "vmnet") ||
+			strings.Contains(nameLower, "hyper-v") ||
+			strings.Contains(nameLower, "wsl")
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					mask := ipnet.Mask
+					netIP := ipnet.IP.Mask(mask)
+					ones, _ := mask.Size()
+					cidr := fmt.Sprintf("%s/%d", netIP.String(), ones)
+
+					if !isVirtualOrVPN {
+						return cidr
+					} else if fallbackSubnet == "" {
+						fallbackSubnet = cidr
+					}
+				}
+			}
+		}
+	}
+
+	return fallbackSubnet
 }
 
 type SetupServer struct {
@@ -582,6 +686,29 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 func (s *SetupServer) Start() {
 	mux := http.NewServeMux()
 
+	infoHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		hostname, _ := os.Hostname()
+		parts := strings.Split(s.ConfigManager.Config.GRPCPort, ":")
+		portNum := 50005
+		if len(parts) > 1 {
+			fmt.Sscanf(parts[len(parts)-1], "%d", &portNum)
+		}
+		httpPort := s.HTTPListener.Addr().(*net.TCPAddr).Port
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"server_id":   s.ConfigManager.Config.ServerID,
+			"server_name": hostname,
+			"version":     "1.0.0",
+			"port":        portNum,
+			"setup_port":  httpPort,
+			"subnet":      GetPrimarySubnet(),
+		})
+	}
+	mux.HandleFunc("/api/v1/info", infoHandler)
+	mux.HandleFunc("/api/info", infoHandler)
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		localIPs := GetLocalIPs()
 		ip := "127.0.0.1"
@@ -598,17 +725,23 @@ func (s *SetupServer) Start() {
 		httpPort := s.HTTPListener.Addr().(*net.TCPAddr).Port
 
 		payload := struct {
-			IP            string `json:"ip"`
-			Port          int    `json:"port"`
-			SetupPort     int    `json:"sport"`
-			Token         string `json:"token"`
-			CAFingerprint string `json:"fp"`
+			IP            string   `json:"ip"`
+			IPs           []string `json:"ips"`
+			Port          int      `json:"port"`
+			SetupPort     int      `json:"sport"`
+			Token         string   `json:"token"`
+			CAFingerprint string   `json:"fp"`
+			ServerID      string   `json:"server_id"`
+			Subnet        string   `json:"subnet"`
 		}{
 			IP:            ip,
+			IPs:           localIPs,
 			Port:          portNum,
 			SetupPort:     httpPort,
 			Token:         s.PairingToken,
 			CAFingerprint: s.CAFingerprint,
+			ServerID:      s.ConfigManager.Config.ServerID,
+			Subnet:        GetPrimarySubnet(),
 		}
 
 		jsonData, _ := json.Marshal(payload)

@@ -1,0 +1,21 @@
+# Binaries and Executables
+*.exe
+*.exe.manifest
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Certificates & Private Keys (never commit generated keys/certs)
+*.pem
+*.key
+*.crt
+
+# Local IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.idea_old/
+*.swp

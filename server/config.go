@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	ServerID            string `json:"server_id,omitempty"`
 	SyncDirectory       string `json:"sync_directory"`
 	GRPCPort            string `json:"grpc_port"`
 	CertDirectory       string `json:"cert_directory"`
@@ -69,6 +70,16 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 			cm.Config.IsFirstRun = true
 			cm.Save()
 		}
+	}
+
+	if cm.Config.ServerID == "" {
+		token, err := GenerateToken()
+		if err == nil {
+			cm.Config.ServerID = token
+		} else {
+			cm.Config.ServerID = "photosync-server"
+		}
+		cm.Save()
 	}
 
 	return cm, nil

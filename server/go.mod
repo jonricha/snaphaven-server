@@ -1,4 +1,4 @@
-module filesync/server
+module github.com/jonricha/snaphaven-server
 
 go 1.19
 
