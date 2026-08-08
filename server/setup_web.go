@@ -679,8 +679,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                             sub.innerText = "Ready to install update (" + st.latest_version + ")";
                         }
                     }
-                })
-                .catch(err => console.error("Error fetching version:", err));
+                .catch(err => {
+                    console.error("Error fetching version:", err);
+                    if (document.getElementById("settingsVersionText")) {
+                        document.getElementById("settingsVersionText").innerText = "Offline / Server Restarting";
+                    }
+                });
         }
 
         function checkUpdates(manual = false) {
