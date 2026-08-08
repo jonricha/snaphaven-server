@@ -10,8 +10,9 @@ Write-Host "===================================================" -ForegroundColo
 
 Write-Host "`n📦 1. Compiling Go Server Executable..." -ForegroundColor Yellow
 Set-Location $serverDir
-go build -ldflags -H=windowsgui -o snaphaven.exe .
-Write-Host "✅ Go Server compiled successfully." -ForegroundColor Green
+$ver = if ($env:VERSION) { $env:VERSION } else { "v1.0.0-dev" }
+go build -ldflags "-X main.Version=$ver -H=windowsgui" -o snaphaven.exe .
+Write-Host "✅ Go Server ($ver) compiled successfully." -ForegroundColor Green
 
 Write-Host "`n🚚 2. Copying binary to windowsservice directory..." -ForegroundColor Yellow
 $serverBinary = Join-Path $serverDir "snaphaven.exe"

@@ -170,6 +170,7 @@ type SetupServer struct {
 	CertManager   *CertManager
 	ConfigManager *ConfigManager
 	ServerManager *ServerManager
+	UpdateManager *UpdateManager
 	HTTPListener  net.Listener
 	ServerURL     string
 
@@ -177,7 +178,7 @@ type SetupServer struct {
 	pairedDevices map[string]bool
 }
 
-func NewSetupServer(grpcAddr string, cm *CertManager, cfgMgr *ConfigManager, srvMgr *ServerManager) (*SetupServer, error) {
+func NewSetupServer(grpcAddr string, cm *CertManager, cfgMgr *ConfigManager, srvMgr *ServerManager, um *UpdateManager) (*SetupServer, error) {
 	token, err := GenerateToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate pairing token: %w", err)
@@ -195,6 +196,7 @@ func NewSetupServer(grpcAddr string, cm *CertManager, cfgMgr *ConfigManager, srv
 		CertManager:   cm,
 		ConfigManager: cfgMgr,
 		ServerManager: srvMgr,
+		UpdateManager: um,
 		HTTPListener:  listener,
 		pairedDevices: make(map[string]bool),
 	}
@@ -416,19 +418,79 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             white-space: pre-wrap;
             color: #38bdf8;
         }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 480px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+        }
+
+        .release-notes-box {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.85rem;
+            max-height: 160px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 12px 0;
+            color: var(--text-muted);
+        }
+
+        .progress-bar-bg {
+            background: var(--border-color);
+            border-radius: 9999px;
+            height: 10px;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .progress-bar-fill {
+            background: var(--accent-color);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .version-badge {
+            font-size: 0.75rem;
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: normal;
+        }
     </style>
 </head>
 <body>
 
     <div class="navbar">
         <div class="brand">
-            🛡️ SnapHaven Server
+            🛡️ SnapHaven Server <span class="version-badge" id="navVersionBadge">v...</span>
         </div>
         <div class="nav-links">
             <button id="btn-pairing" class="nav-btn active" onclick="showTab('pairing')">📱 Pairing QR Code</button>
             <button id="btn-status" class="nav-btn" onclick="showTab('status')">📊 Server Status</button>
             <button id="btn-settings" class="nav-btn" onclick="showTab('settings')">⚙️ Settings</button>
             <button id="btn-logs" class="nav-btn" onclick="showTab('logs')">📋 Live Logs</button>
+            <button id="btn-about" class="nav-btn" onclick="showTab('about')">ℹ️ About</button>
         </div>
     </div>
 
@@ -507,6 +569,18 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     <div id="settingsStatus" style="margin-top: 10px; font-size: 0.85rem;"></div>
                 </form>
             </div>
+
+            <div class="card">
+                <h2>Software Updates & Version</h2>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 12px;">
+                    <div>
+                        <div style="font-size: 0.9rem; color: var(--text-muted);">Installed Server Version</div>
+                        <div style="font-size: 1.1rem; font-weight: bold; margin-top: 4px;" id="settingsVersionText">Loading...</div>
+                        <div id="updateStatusSubtext" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;"></div>
+                    </div>
+                    <button type="button" class="btn" id="checkUpdatesBtn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
+                </div>
+            </div>
         </div>
 
         <!-- Logs Tab -->
@@ -524,9 +598,178 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- About Tab -->
+        <div id="about" class="tab-content">
+            <div class="card">
+                <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 20px;">
+                    <div style="font-size: 2.5rem;">🛡️</div>
+                    <div>
+                        <h2 style="margin: 0; color: #38bdf8;">SnapHaven Server</h2>
+                        <div style="color: var(--text-muted); font-size: 0.9rem;">Secure mTLS Photo & File Synchronization Engine</div>
+                    </div>
+                </div>
+
+                <div class="info-box" style="margin-bottom: 20px;">
+                    <div><strong>Version:</strong> <span id="aboutVersionStr">Loading...</span></div>
+                    <div style="margin-top: 6px;"><strong>Git Commit:</strong> <span id="aboutCommitStr">Loading...</span></div>
+                    <div style="margin-top: 6px;"><strong>Build Timestamp:</strong> <span id="aboutBuildTimeStr">Loading...</span></div>
+                    <div style="margin-top: 6px;"><strong>Author:</strong> Jonathan Richardson</div>
+                    <div style="margin-top: 6px;"><strong>License:</strong> MIT License</div>
+                    <div style="margin-top: 6px;"><strong>GitHub Repository:</strong> <a href="https://github.com/jonricha/snaphaven-server" target="_blank" style="color: #38bdf8; text-decoration: none;">https://github.com/jonricha/snaphaven-server</a></div>
+                </div>
+
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
+                    <a href="https://github.com/jonricha/snaphaven-server" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">🌐 View Source on GitHub</a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Update Prompt Modal -->
+    <div id="updateModal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3 id="updateModalTitle" style="margin-top: 0;">✨ SnapHaven Update Available!</h3>
+            <div id="updateModalVersion" style="font-weight: bold; color: #38bdf8; font-size: 1rem; margin-bottom: 8px;"></div>
+            <div id="updateModalNotes" class="release-notes-box">Checking for release notes...</div>
+            <div id="updateProgressContainer" style="display: none; margin-top: 16px;">
+                <div class="progress-bar-bg"><div id="updateProgressBar" class="progress-bar-fill"></div></div>
+                <div id="updateProgressText" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-align: center;">Downloading update package...</div>
+            </div>
+            <div id="updateModalActions" class="modal-actions" style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="updateLaterBtn" class="btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-muted);" onclick="closeUpdateModal()">Later</button>
+                <button id="updateNowBtn" class="btn" onclick="performUpdate()">🚀 Update Now</button>
+            </div>
+        </div>
     </div>
 
     <script>
+        let currentUpdateInfo = null;
+
+        function fetchVersionInfo() {
+            fetch("/api/version")
+                .then(r => r.json())
+                .then(data => {
+                    const ver = data.formatted || data.version || "v0.0.0";
+                    document.getElementById("navVersionBadge").innerText = ver;
+                    document.getElementById("settingsVersionText").innerText = ver;
+                    if (document.getElementById("aboutVersionStr")) document.getElementById("aboutVersionStr").innerText = data.version || "v0.0.0-dev";
+                    if (document.getElementById("aboutCommitStr")) document.getElementById("aboutCommitStr").innerText = data.commit || "none";
+                    if (document.getElementById("aboutBuildTimeStr")) document.getElementById("aboutBuildTimeStr").innerText = data.build_time || "unknown";
+
+                    if (data.update_status) {
+                        const st = data.update_status;
+                        const sub = document.getElementById("updateStatusSubtext");
+
+                        if (st.state === "update_available") {
+                            currentUpdateInfo = st.update_info;
+                            sub.innerText = "✨ New version available: " + st.latest_version;
+                            sub.style.color = "#38bdf8";
+
+                            if (!sessionStorage.getItem("update_prompted")) {
+                                showUpdateModal(st.update_info);
+                            }
+                        } else if (st.state === "no_update") {
+                            sub.innerText = "✅ Server is running the latest version.";
+                            sub.style.color = "var(--success)";
+                        } else if (st.state === "downloading") {
+                            sub.innerText = "📥 Downloading update... (" + (st.progress || 0) + "%)";
+                        } else if (st.state === "ready_to_install") {
+                            sub.innerText = "Ready to install update (" + st.latest_version + ")";
+                        }
+                    }
+                })
+                .catch(err => console.error("Error fetching version:", err));
+        }
+
+        function checkUpdates(manual = false) {
+            const btn = document.getElementById("checkUpdatesBtn");
+            if (btn) btn.innerText = "Checking...";
+            const sub = document.getElementById("updateStatusSubtext");
+            if (sub) sub.innerText = "Querying latest release from GitHub...";
+
+            fetch("/api/check-update", { method: "POST" })
+                .then(r => r.json())
+                .then(data => {
+                    if (btn) btn.innerText = "🔄 Check for Updates";
+                    if (data.has_update && data.info) {
+                        showUpdateModal(data.info);
+                    } else if (manual) {
+                        alert("You are running the latest version of SnapHaven Server (" + (data.current_version || "up-to-date") + ").");
+                    }
+                    fetchVersionInfo();
+                })
+                .catch(err => {
+                    if (btn) btn.innerText = "🔄 Check for Updates";
+                    if (manual) alert("Failed to check for updates: " + err);
+                });
+        }
+
+        function showUpdateModal(info) {
+            currentUpdateInfo = info;
+            sessionStorage.setItem("update_prompted", "true");
+            document.getElementById("updateModalVersion").innerText = "Version " + (info ? info.version : "");
+            document.getElementById("updateModalNotes").innerText = (info && info.release_notes) ? info.release_notes : "No release notes available.";
+            document.getElementById("updateModal").style.display = "flex";
+            document.getElementById("updateProgressContainer").style.display = "none";
+            document.getElementById("updateModalActions").style.display = "flex";
+        }
+
+        function closeUpdateModal() {
+            document.getElementById("updateModal").style.display = "none";
+        }
+
+        function performUpdate() {
+            document.getElementById("updateModalActions").style.display = "none";
+            document.getElementById("updateProgressContainer").style.display = "block";
+            document.getElementById("updateProgressText").innerText = "Starting update download...";
+
+            fetch("/api/perform-update", { method: "POST" })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert("Update failed: " + (data.error || "Unknown error"));
+                        closeUpdateModal();
+                        return;
+                    }
+                    pollUpdateProgress();
+                })
+                .catch(err => {
+                    alert("Error initiating update: " + err);
+                    closeUpdateModal();
+                });
+        }
+
+        function pollUpdateProgress() {
+            const interval = setInterval(() => {
+                fetch("/api/version")
+                    .then(r => r.json())
+                    .then(data => {
+                        const st = data.update_status;
+                        if (!st) return;
+
+                        if (st.state === "downloading") {
+                            const prog = st.progress || 0;
+                            document.getElementById("updateProgressBar").style.width = prog + "%";
+                            document.getElementById("updateProgressText").innerText = "Downloading update package... (" + prog + "%)";
+                        } else if (st.state === "ready_to_install") {
+                            clearInterval(interval);
+                            document.getElementById("updateProgressBar").style.width = "100%";
+                            document.getElementById("updateProgressText").innerText = "Update ready! Installer launched. Server is restarting...";
+                            setTimeout(() => {
+                                closeUpdateModal();
+                                location.reload();
+                            }, 5000);
+                        } else if (st.state === "error") {
+                            clearInterval(interval);
+                            alert("Update failed: " + st.error_message);
+                            closeUpdateModal();
+                        }
+                    });
+            }, 1000);
+        }
+
         const pairingData = {{.JSONData}};
         new QRCode(document.getElementById("qrcode"), {
             text: JSON.stringify(pairingData),
@@ -700,7 +943,7 @@ func (s *SetupServer) Start() {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"server_id":   s.ConfigManager.Config.ServerID,
 			"server_name": hostname,
-			"version":     "1.0.0",
+			"version":     GetVersion(),
 			"port":        portNum,
 			"setup_port":  httpPort,
 			"subnet":      GetPrimarySubnet(),
@@ -708,6 +951,64 @@ func (s *SetupServer) Start() {
 	}
 	mux.HandleFunc("/api/v1/info", infoHandler)
 	mux.HandleFunc("/api/info", infoHandler)
+
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var status UpdateStatus
+		if s.UpdateManager != nil {
+			status = s.UpdateManager.GetStatus()
+		} else {
+			status = UpdateStatus{State: StateIdle, CurrentVer: GetVersion()}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"version":       GetVersion(),
+			"commit":        GetCommit(),
+			"build_time":    GetBuildTime(),
+			"formatted":     GetFormattedVersion(),
+			"update_status": status,
+		})
+	})
+
+	mux.HandleFunc("/api/check-update", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if s.UpdateManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Update manager unavailable"})
+			return
+		}
+		info, hasUpdate, err := s.UpdateManager.CheckForUpdates()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":         true,
+			"has_update":      hasUpdate,
+			"info":            info,
+			"current_version": GetVersion(),
+		})
+	})
+
+	mux.HandleFunc("/api/perform-update", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if s.UpdateManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Update manager unavailable"})
+			return
+		}
+		go func() {
+			err := s.UpdateManager.DownloadUpdate()
+			if err != nil {
+				return
+			}
+			s.UpdateManager.ApplyUpdate()
+		}()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Update download and installation started.",
+		})
+	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		localIPs := GetLocalIPs()

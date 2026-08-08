@@ -139,7 +139,7 @@ func main() {
 	InitLogHub(logFilePath)
 
 	log.Printf("==================================================")
-	log.Printf("🚀 Starting SnapHaven Server Application...")
+	log.Printf("🚀 Starting SnapHaven Server Application %s...", GetFormattedVersion())
 	log.Printf("==================================================")
 
 	// 2. Load / Create Configuration
@@ -176,6 +176,7 @@ func main() {
 
 	log.Printf("📁 Sync Target Directory: %v", configMgr.Config.SyncDirectory)
 	log.Printf("🔌 gRPC Port: %v", configMgr.Config.GRPCPort)
+	log.Printf("🏷️ Server Version: %v", GetFormattedVersion())
 
 	// 3. Initialize Certificate Manager
 	certMgr, err := NewCertManager(configMgr.Config.CertDirectory)
@@ -189,8 +190,12 @@ func main() {
 		log.Printf("Warning: Failed to auto-start gRPC server: %v", err)
 	}
 
-	// 5. Initialize Web Setup & Dashboard Server
-	setupServer, err := NewSetupServer(configMgr.Config.GRPCPort, certMgr, configMgr, srvMgr)
+	// 5. Initialize Update Manager & Start Auto-Check Ticker
+	updaterMgr := NewUpdateManager("", "")
+	updaterMgr.StartAutoCheckTicker(DefaultCheckInterval)
+
+	// 6. Initialize Web Setup & Dashboard Server
+	setupServer, err := NewSetupServer(configMgr.Config.GRPCPort, certMgr, configMgr, srvMgr, updaterMgr)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize setup web server: %v", err)
 	} else {
@@ -198,8 +203,8 @@ func main() {
 		setupServer.Start()
 	}
 
-	// 6. Launch System Tray Interface (runs event loop on main thread)
-	tray := NewTrayApp(srvMgr, setupServer)
+	// 7. Launch System Tray Interface (runs event loop on main thread)
+	tray := NewTrayApp(srvMgr, setupServer, updaterMgr)
 	tray.Run()
 }
 

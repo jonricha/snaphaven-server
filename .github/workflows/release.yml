@@ -31,7 +31,8 @@ jobs:
       - name: Build Go Server Executable
         run: |
           cd server
-          go build -ldflags -H=windowsgui -o snaphaven.exe .
+          $TAG = if ("${{ github.ref_name }}" -ne "") { "${{ github.ref_name }}" } else { "v1.0.0" }
+          go build -ldflags "-X main.Version=$TAG -X main.Commit=${{ github.sha }} -H=windowsgui" -o snaphaven.exe .
           Copy-Item snaphaven.exe ..\windowsservice\snaphaven.exe -Force
 
       - name: Compile NSIS Installer
