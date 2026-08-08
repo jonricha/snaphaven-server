@@ -83,7 +83,29 @@ func (t *TrayApp) onReady() {
 	})
 
 	mCheckUpdate.Click(func() {
-		OpenBrowser(t.setupServer.ServerURL + "/#settings")
+		if t.updater != nil {
+			st := t.updater.GetStatus()
+			if st.State == StateUpdateAvailable || st.State == StateReadyToInstall {
+				LogEvent("🚀 User initiated update from System Tray menu...")
+				go func() {
+					if st.State == StateUpdateAvailable {
+						err := t.updater.DownloadUpdate()
+						if err != nil {
+							return
+						}
+					}
+					t.updater.ApplyUpdate()
+				}()
+				if t.setupServer != nil {
+					OpenBrowser(t.setupServer.ServerURL + "/#settings")
+				}
+				return
+			}
+		}
+
+		if t.setupServer != nil {
+			OpenBrowser(t.setupServer.ServerURL + "/#settings")
+		}
 		if t.updater != nil {
 			go t.updater.CheckForUpdates()
 		}
