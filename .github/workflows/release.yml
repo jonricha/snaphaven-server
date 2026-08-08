@@ -29,7 +29,7 @@ jobs:
         run: |
           cd server
           go build -o photosync_server.exe .
-          copy photosync_server.exe ..\windowsservice\photosync_server.exe
+          Copy-Item photosync_server.exe ..\windowsservice\photosync_server.exe -Force
 
       - name: Compile NSIS Installer
         run: |

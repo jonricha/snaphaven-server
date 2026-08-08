@@ -1,11 +1,11 @@
 syntax = "proto3";
 
-option go_package = "/filesync";
-option java_package = "jon.filesync";
+option go_package = "/snaphaven";
+option java_package = "com.snaphaven.app";
 
-package filesync;
+package snaphaven;
 
-service FileSync {
+service SnapHaven {
     rpc SendFileInfo (stream FileInfoRequest) returns (stream FileInfoReply) {}
     rpc SendFiles (stream FileChunk) returns (FileReply) {}
 }

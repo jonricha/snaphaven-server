@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	pb "filesync/server/filesync"
+	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"log"
 	"net"
 	"sync"
@@ -61,7 +61,7 @@ func (sm *ServerManager) Start() error {
 
 	creds := credentials.NewTLS(tlsConfig)
 	s := grpc.NewServer(grpc.Creds(creds))
-	pb.RegisterFileSyncServer(s, &server{syncdir: cfg.SyncDirectory})
+	pb.RegisterSnapHavenServer(s, &server{syncdir: cfg.SyncDirectory})
 
 	sm.grpcServer = s
 	sm.grpcListener = lis

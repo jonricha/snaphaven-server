@@ -15,13 +15,13 @@ import (
 	"os"
 	"testing"
 
-	pb "filesync/server/filesync"
+	pb "github.com/jonricha/snaphaven-server/snaphaven"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, pb.FileSyncClient, context.Context, context.CancelFunc) {
+func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, pb.SnapHavenClient, context.Context, context.CancelFunc) {
 	// Create client CSR and ask CertManager to sign it for mTLS test
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -72,10 +72,10 @@ func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, 
 
 	// Contact the server
 	ctx, cancel := context.WithCancel(context.Background())
-	return conn, pb.NewFileSyncClient(conn), ctx, cancel
+	return conn, pb.NewSnapHavenClient(conn), ctx, cancel
 }
 
-func setupTestCase(t *testing.T) (func(t *testing.T), pb.FileSyncClient, context.Context) {
+func setupTestCase(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, context.Context) {
 	t.Log("setupTestCase >>")
 	tempdir, err := ioutil.TempDir("", "filesyncserver")
 	if err != nil {
@@ -130,7 +130,7 @@ type FileInfoTestData struct {
 	shouldsend bool
 }
 
-func checkFiles(t *testing.T, client pb.FileSyncClient, input []FileInfoTestData) {
+func checkFiles(t *testing.T, client pb.SnapHavenClient, input []FileInfoTestData) {
 	stream, err := client.SendFileInfo(context.Background())
 	if err != nil {
 		t.Fatalf("SendFileInfo failed with: %v", err)

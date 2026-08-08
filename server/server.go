@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	pb "filesync/server/filesync"
+	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"flag"
 	"fmt"
 	"io"
@@ -20,7 +20,7 @@ import (
 )
 
 type server struct {
-	pb.UnimplementedFileSyncServer
+	pb.UnimplementedSnapHavenServer
 	syncdir string
 }
 
@@ -47,7 +47,7 @@ func (s *server) shouldSend(path string, remotehash string) bool {
 	return false
 }
 
-func (s *server) SendFileInfo(stream pb.FileSync_SendFileInfoServer) error {
+func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 	for {
 		fileinfo, err := stream.Recv()
 		if err == io.EOF {
@@ -64,7 +64,7 @@ func (s *server) SendFileInfo(stream pb.FileSync_SendFileInfoServer) error {
 	}
 }
 
-func (s *server) SendFiles(stream pb.FileSync_SendFilesServer) error {
+func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 	filename := ""
 	first := true
 	for {
@@ -127,7 +127,7 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager) (*grpc.S
 	var opts []grpc.ServerOption
 	opts = []grpc.ServerOption{grpc.Creds(creds)}
 	s := grpc.NewServer(opts...)
-	pb.RegisterFileSyncServer(s, &server{syncdir: commonSyncDir})
+	pb.RegisterSnapHavenServer(s, &server{syncdir: commonSyncDir})
 	log.Printf("mTLS gRPC server listening at %v, serving directory: %v", lis.Addr(), commonSyncDir)
 	return s, lis
 }
