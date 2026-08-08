@@ -82,8 +82,8 @@ func (cm *CertManager) generateCA(certPath, keyPath string) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumberNumber,
 		Subject: pkix.Name{
-			Organization: []string{"PhotoSync Local CA"},
-			CommonName:   "PhotoSync Root CA",
+			Organization: []string{"SnapHaven Local CA"},
+			CommonName:   "SnapHaven Root CA",
 		},
 		NotBefore:             time.Now().Add(-10 * time.Minute),
 		NotAfter:              time.Now().AddDate(10, 0, 0), // 10 years
@@ -168,8 +168,8 @@ func (cm *CertManager) generateServerCert(certPath, keyPath string) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{"PhotoSync Server"},
-			CommonName:   "PhotoSync Server",
+			Organization: []string{"SnapHaven Server"},
+			CommonName:   "SnapHaven Server",
 		},
 		NotBefore:   time.Now().Add(-10 * time.Minute),
 		NotAfter:    time.Now().AddDate(5, 0, 0),

@@ -135,11 +135,11 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager) (*grpc.S
 func main() {
 	// 1. Initialize Log Hub & Streamer
 	configPath, _ := GetDefaultConfigPath()
-	logFilePath := filepath.Join(filepath.Dir(configPath), "photosync.log")
+	logFilePath := filepath.Join(filepath.Dir(configPath), "snaphaven.log")
 	InitLogHub(logFilePath)
 
 	log.Printf("==================================================")
-	log.Printf("🚀 Starting PhotoSync Server Application...")
+	log.Printf("🚀 Starting SnapHaven Server Application...")
 	log.Printf("==================================================")
 
 	// 2. Load / Create Configuration

@@ -1,21 +1,21 @@
-# PhotoSync One-Shot Build Script
+# SnapHaven One-Shot Build Script
 $ErrorActionPreference = "Stop"
 
 $scriptDir = $PSScriptRoot
 $serverDir = Join-Path $scriptDir "..\server"
 
 Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "🛠️  PhotoSync Server & Installer Build Script" -ForegroundColor Cyan
+Write-Host "🛠️  SnapHaven Server & Installer Build Script" -ForegroundColor Cyan
 Write-Host "===================================================" -ForegroundColor Cyan
 
 Write-Host "`n📦 1. Compiling Go Server Executable..." -ForegroundColor Yellow
 Set-Location $serverDir
-go build -ldflags -H=windowsgui -o photosync_server.exe .
+go build -ldflags -H=windowsgui -o snaphaven.exe .
 Write-Host "✅ Go Server compiled successfully." -ForegroundColor Green
 
 Write-Host "`n🚚 2. Copying binary to windowsservice directory..." -ForegroundColor Yellow
-$serverBinary = Join-Path $serverDir "photosync_server.exe"
-$targetBinary = Join-Path $scriptDir "photosync_server.exe"
+$serverBinary = Join-Path $serverDir "snaphaven.exe"
+$targetBinary = Join-Path $scriptDir "snaphaven.exe"
 Copy-Item -Path $serverBinary -Destination $targetBinary -Force
 
 Write-Host "`n🔨 3. Compiling NSIS Installer Package..." -ForegroundColor Yellow
@@ -31,9 +31,9 @@ if (-not (Test-Path $nsisCompiler)) {
     }
 }
 
-& $nsisCompiler filesync.nsi
+& $nsisCompiler snaphaven.nsi
 
 Write-Host "`n===================================================" -ForegroundColor Cyan
 Write-Host "🎉 SUCCESS! Installer package created:" -ForegroundColor Green
-Write-Host "   $(Join-Path $scriptDir 'PhotoSyncInstaller.exe')" -ForegroundColor Green
+Write-Host "   $(Join-Path $scriptDir 'SnapHavenInstaller.exe')" -ForegroundColor Green
 Write-Host "===================================================" -ForegroundColor Cyan

@@ -34,8 +34,8 @@ func (t *TrayApp) Run() {
 }
 
 func (t *TrayApp) onReady() {
-	systray.SetTitle("PhotoSync")
-	systray.SetTooltip("PhotoSync Server")
+	systray.SetTitle("SnapHaven")
+	systray.SetTooltip("SnapHaven Server")
 
 	// Set system tray icon from embedded icon.ico
 	systray.SetIcon(trayIconBytes)
@@ -50,7 +50,7 @@ func (t *TrayApp) onReady() {
 
 	systray.AddSeparator()
 	mToggle := systray.AddMenuItem("Pause Server", "Toggle gRPC sync server")
-	mQuit := systray.AddMenuItem("Quit PhotoSync", "Quit the PhotoSync server application")
+	mQuit := systray.AddMenuItem("Quit SnapHaven", "Quit the SnapHaven server application")
 
 	mQR.Click(func() {
 		OpenBrowser(t.setupServer.ServerURL + "/#pairing")
@@ -89,6 +89,6 @@ func (t *TrayApp) onReady() {
 
 func (t *TrayApp) onExit() {
 	t.serverMgr.Stop()
-	log.Printf("PhotoSync Server safely exited.")
+	log.Printf("SnapHaven Server safely exited.")
 	os.Exit(0)
 }

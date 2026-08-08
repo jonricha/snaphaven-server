@@ -33,7 +33,7 @@ func GetDefaultConfigPath() (string, error) {
 		}
 		configDir = home
 	}
-	appDir := filepath.Join(configDir, "PhotoSync")
+	appDir := filepath.Join(configDir, "SnapHaven")
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		return "config.json", nil
 	}
@@ -51,7 +51,7 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 	}
 
 	homeDir, _ := os.UserHomeDir()
-	defaultSync := filepath.Join(homeDir, "filesync")
+	defaultSync := filepath.Join(homeDir, "snaphaven")
 
 	cm := &ConfigManager{
 		filePath: path,
@@ -77,7 +77,7 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 		if err == nil {
 			cm.Config.ServerID = token
 		} else {
-			cm.Config.ServerID = "photosync-server"
+			cm.Config.ServerID = "snaphaven-server"
 		}
 		cm.Save()
 	}

@@ -31,23 +31,23 @@ jobs:
       - name: Build Go Server Executable
         run: |
           cd server
-          go build -ldflags -H=windowsgui -o photosync_server.exe .
-          Copy-Item photosync_server.exe ..\windowsservice\photosync_server.exe -Force
+          go build -ldflags -H=windowsgui -o snaphaven.exe .
+          Copy-Item snaphaven.exe ..\windowsservice\snaphaven.exe -Force
 
       - name: Compile NSIS Installer
         run: |
           cd windowsservice
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (Test-Path $makensis) {
-            & $makensis filesync.nsi
+            & $makensis snaphaven.nsi
           } else {
-            makensis filesync.nsi
+            makensis snaphaven.nsi
           }
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: windowsservice/PhotoSyncInstaller.exe
+          files: windowsservice/SnapHavenInstaller.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

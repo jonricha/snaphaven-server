@@ -215,7 +215,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhotoSync Dashboard</title>
+    <title>SnapHaven Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <style>
         :root {
@@ -422,7 +422,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 
     <div class="navbar">
         <div class="brand">
-            📷 PhotoSync Server
+            🛡️ SnapHaven Server
         </div>
         <div class="nav-links">
             <button id="btn-pairing" class="nav-btn active" onclick="showTab('pairing')">📱 Pairing QR Code</button>
@@ -437,8 +437,8 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         <div class="banner-notice">
             <div style="font-size: 1.5rem;">💡</div>
             <div>
-                <strong>Welcome to PhotoSync!</strong><br>
-                PhotoSync is now running in your <strong>system tray</strong>. You can right-click the tray icon anytime to view status, pause the server, or open this dashboard.
+                <strong>Welcome to SnapHaven!</strong><br>
+                SnapHaven is now running in your <strong>system tray</strong>. You can right-click the tray icon anytime to view status, pause the server, or open this dashboard.
             </div>
         </div>
         {{end}}
@@ -447,7 +447,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         <div id="pairing" class="tab-content active">
             <div class="card" style="text-align: center;">
                 <h2>Pair Mobile Device</h2>
-                <p style="color: var(--text-muted);">Scan this QR code with the <strong>PhotoSync Android App</strong> to pair your device with mTLS security.</p>
+                <p style="color: var(--text-muted);">Scan this QR code with the <strong>SnapHaven Android App</strong> to pair your device with mTLS security.</p>
 
                 <div id="qrcode"></div>
 
@@ -501,7 +501,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     </div>
                     <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="autoStart" {{if .Config.AutoStartOnBoot}}checked{{end}}>
-                        <label for="autoStart" style="margin: 0;">Launch PhotoSync automatically on system startup</label>
+                        <label for="autoStart" style="margin: 0;">Launch SnapHaven automatically on system startup</label>
                     </div>
                     <button type="submit" class="btn">💾 Save & Restart Server</button>
                     <div id="settingsStatus" style="margin-top: 10px; font-size: 0.85rem;"></div>
@@ -886,8 +886,8 @@ func (s *SetupServer) Start() {
 		httpPort := fmt.Sprintf("%d", s.HTTPListener.Addr().(*net.TCPAddr).Port)
 
 		if runtime.GOOS == "windows" {
-			cmdStr := fmt.Sprintf("netsh advfirewall firewall add rule name=\"PhotoSync Server\" dir=in action=allow protocol=TCP localport=%s,%s", portNum, httpPort)
-			psCmd := fmt.Sprintf("Start-Process netsh -ArgumentList 'advfirewall firewall add rule name=\"PhotoSync Server\" dir=in action=allow protocol=TCP localport=%s,%s' -Verb RunAs", portNum, httpPort)
+			cmdStr := fmt.Sprintf("netsh advfirewall firewall add rule name=\"SnapHaven Server\" dir=in action=allow protocol=TCP localport=%s,%s", portNum, httpPort)
+			psCmd := fmt.Sprintf("Start-Process netsh -ArgumentList 'advfirewall firewall add rule name=\"SnapHaven Server\" dir=in action=allow protocol=TCP localport=%s,%s' -Verb RunAs", portNum, httpPort)
 			err := exec.Command("powershell", "-Command", psCmd).Start()
 			if err != nil {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error(), "cmd": cmdStr, "os": "windows"})

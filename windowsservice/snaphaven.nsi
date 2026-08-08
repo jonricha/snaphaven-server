@@ -1,8 +1,8 @@
 # define installer name
-OutFile "PhotoSyncInstaller.exe"
+OutFile "SnapHavenInstaller.exe"
  
 # set program files as install directory
-InstallDir $PROGRAMFILES\FileSyncServer
+InstallDir $PROGRAMFILES\SnapHavenServer
  
 # default section start
 Section
@@ -11,13 +11,13 @@ Section
 SetOutPath $INSTDIR
  
 # specify file to go in output path
-File photosync_server.exe
+File snaphaven.exe
  
 # Create a shortcut in the Start Menu Startup folder for auto-launch in tray
-CreateShortCut "$SMSTARTUP\PhotoSync Server.lnk" "$INSTDIR\photosync_server.exe"
+CreateShortCut "$SMSTARTUP\SnapHaven Server.lnk" "$INSTDIR\snaphaven.exe"
 
 # Launch application detached without spawning a console window
-Exec '"$INSTDIR\photosync_server.exe"'
+Exec '"$INSTDIR\snaphaven.exe"'
 
 # define uninstaller name
 WriteUninstaller $INSTDIR\uninstaller.exe
@@ -27,15 +27,15 @@ SectionEnd
 # create a section to define what the uninstaller does.
 Section "Uninstall"
 
-# 1. Terminate any running instances of PhotoSync server
-ExecWait 'taskkill /F /IM photosync_server.exe'
+# 1. Terminate any running instances of SnapHaven server
+ExecWait 'taskkill /F /IM snaphaven.exe'
 Sleep 500
 
 # 2. Remove Startup shortcut
-Delete "$SMSTARTUP\PhotoSync Server.lnk"
+Delete "$SMSTARTUP\SnapHaven Server.lnk"
 
 # 3. Delete installed files and subdirectories
-Delete $INSTDIR\photosync_server.exe
+Delete $INSTDIR\snaphaven.exe
 Delete $INSTDIR\uninstaller.exe
 Delete $INSTDIR\*.log
 Delete $INSTDIR\*.json
@@ -45,7 +45,7 @@ RMDir /r $INSTDIR\certs
 # 4. Remove installation folder
 RMDir /r $INSTDIR
 
-# 5. Clean up user config directory in AppData (%APPDATA%\PhotoSync)
-RMDir /r "$APPDATA\PhotoSync"
+# 5. Clean up user config directory in AppData (%APPDATA%\SnapHaven)
+RMDir /r "$APPDATA\SnapHaven"
 
 SectionEnd
