@@ -10,7 +10,7 @@ Write-Host "===================================================" -ForegroundColo
 
 Write-Host "`n📦 1. Compiling Go Server Executable..." -ForegroundColor Yellow
 Set-Location $serverDir
-go build -o photosync_server.exe .
+go build -ldflags -H=windowsgui -o photosync_server.exe .
 Write-Host "✅ Go Server compiled successfully." -ForegroundColor Green
 
 Write-Host "`n🚚 2. Copying binary to windowsservice directory..." -ForegroundColor Yellow

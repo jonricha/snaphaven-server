@@ -9,7 +9,7 @@ set SERVER_DIR=%SCRIPT_DIR%..\server
 echo.
 echo 📦 1. Compiling Go Server Executable (photosync_server.exe)...
 cd /d "%SERVER_DIR%"
-go build -o photosync_server.exe .
+go build -ldflags -H=windowsgui -o photosync_server.exe .
 if %ERRORLEVEL% NEQ 0 (
     echo ❌ Error: Failed to compile Go server!
     exit /b %ERRORLEVEL%

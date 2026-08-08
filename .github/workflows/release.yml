@@ -31,7 +31,7 @@ jobs:
       - name: Build Go Server Executable
         run: |
           cd server
-          go build -o photosync_server.exe .
+          go build -ldflags -H=windowsgui -o photosync_server.exe .
           Copy-Item photosync_server.exe ..\windowsservice\photosync_server.exe -Force
 
       - name: Compile NSIS Installer
