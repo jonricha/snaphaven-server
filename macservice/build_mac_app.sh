@@ -18,9 +18,9 @@ COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 echo "📦 1. Compiling macOS binaries..."
 cd "$SERVER_DIR"
 
-# Compile Apple Silicon (arm64) and Intel (amd64)
-GOOS=darwin GOARCH=arm64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-arm64" .
-GOOS=darwin GOARCH=amd64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-amd64" .
+# Compile Apple Silicon (arm64) and Intel (amd64) with native Cocoa CGO enabled
+CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-arm64" .
+CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-amd64" .
 
 echo "🍏 2. Assembling macOS App Bundle..."
 rm -rf "$BUILD_DIR"

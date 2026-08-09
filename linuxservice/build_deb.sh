@@ -17,7 +17,7 @@ COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 
 echo "📦 1. Compiling Linux server executable..."
 cd "$SERVER_DIR"
-GOOS=linux GOARCH=amd64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-server" .
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "-X 'main.Version=$VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-server" .
 
 echo "🐧 2. Assembling Debian Package Directory..."
 rm -rf "$BUILD_DIR"
