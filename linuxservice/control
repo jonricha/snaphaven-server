@@ -1,0 +1,7 @@
+Package: snaphaven-server
+Version: 1.0.0
+Architecture: amd64
+Maintainer: Jonathan Richardson <support@snaphaven.app>
+Description: Secure mTLS Photo & Video Backup Engine
+ SnapHaven automatically backs up photos and videos from mobile devices directly
+ to your home PC or server over encrypted local Wi-Fi.

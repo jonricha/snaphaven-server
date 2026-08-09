@@ -83,33 +83,24 @@ jobs:
           cd server
           go test -v ./...
 
-      - name: Build macOS Executables
+      - name: Build macOS App Bundle & Packaging
         run: |
-          cd server
-          TAG="${{ github.ref_name != '' && github.ref_name || 'v1.0.0' }}"
-          BUILDDATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
-          # Apple Silicon (arm64)
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-X 'main.Version=$TAG' -X 'main.Commit=${{ github.sha }}' -X 'main.BuildTime=$BUILDDATE'" -o snaphaven-mac-arm64 .
-          
-          # Intel Mac (amd64)
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-X 'main.Version=$TAG' -X 'main.Commit=${{ github.sha }}' -X 'main.BuildTime=$BUILDDATE'" -o snaphaven-mac-amd64 .
-          
-          tar -czvf SnapHavenServer-macOS.tar.gz snaphaven-mac-arm64 snaphaven-mac-amd64
+          chmod +x macservice/build_mac_app.sh
+          ./macservice/build_mac_app.sh
 
       - name: Upload macOS Release Asset
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: server/SnapHavenServer-macOS.tar.gz
+          files: macservice/SnapHavenServer-macOS.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # --------------------------------------------------------------------------
-  # 3. Build Linux Server (x86_64 Debian & Tarball)
+  # 3. Build Linux Server (x86_64 Debian .deb & Tarball)
   # --------------------------------------------------------------------------
   build-linux:
-    name: Build Linux (x86_64)
+    name: Build Linux (Debian .deb & Tarball)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -121,29 +112,27 @@ jobs:
           go-version: '1.21'
           cache-dependency-path: server/go.sum
 
-      - name: Install System Tray Dependencies
+      - name: Install System Tray & Packaging Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libappindicator3-dev libgtk-3-dev gcc
+          sudo apt-get install -y libappindicator3-dev libgtk-3-dev gcc dpkg-dev
 
       - name: Run Server Unit Tests on Linux Runner
         run: |
           cd server
           go test -v ./...
 
-      - name: Build Linux Executable & Package
+      - name: Build Linux Debian Package & Tarball
         run: |
-          cd server
-          TAG="${{ github.ref_name != '' && github.ref_name || 'v1.0.0' }}"
-          BUILDDATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
-          go build -ldflags "-X 'main.Version=$TAG' -X 'main.Commit=${{ github.sha }}' -X 'main.BuildTime=$BUILDDATE'" -o snaphaven-server .
-          tar -czvf SnapHavenServer-Linux-x86_64.tar.gz snaphaven-server
+          chmod +x linuxservice/build_deb.sh
+          ./linuxservice/build_deb.sh
 
-      - name: Upload Linux Release Asset
+      - name: Upload Linux Release Assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: server/SnapHavenServer-Linux-x86_64.tar.gz
+          files: |
+            linuxservice/snaphaven-server_1.0.0_amd64.deb
+            linuxservice/SnapHavenServer-Linux-x86_64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
