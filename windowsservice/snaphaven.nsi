@@ -8,6 +8,8 @@ Var SYNCDIR
 
 ; --- MUI Settings ---
 !define MUI_ABORTWARNING
+!define MUI_ICON "..\server\icon.ico"
+!define MUI_UNICON "..\server\icon.ico"
 
 ; --- Pages ---
 !insertmacro MUI_PAGE_WELCOME
