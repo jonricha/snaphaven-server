@@ -6,6 +6,9 @@
 *.dylib
 *.test
 *.out
+snaphaven-linux*
+snaphaven-mac*
+SnapHavenServer*
 
 # Certificates & Private Keys (never commit generated keys/certs)
 *.pem
