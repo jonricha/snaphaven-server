@@ -81,7 +81,7 @@ jobs:
       - name: Run Server Unit Tests on macOS Runner
         run: |
           cd server
-          CGO_ENABLED=1 go test -v ./...
+          CGO_ENABLED=1 go test -v -ldflags="-linkmode=external" ./...
 
       - name: Build macOS App Bundle & Packaging
         run: |
