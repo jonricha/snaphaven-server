@@ -132,7 +132,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
           files: |
-            linuxservice/snaphaven-server_1.0.0_amd64.deb
+            linuxservice/snaphaven-server_*.deb
             linuxservice/SnapHavenServer-Linux-x86_64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
