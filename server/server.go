@@ -88,7 +88,7 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 			// only append on subsequent chunks
 			fileopenmask |= os.O_APPEND
 		}
-		if err = os.MkdirAll(filepath.Dir(fullpathfile), 0666); err != nil {
+		if err = os.MkdirAll(filepath.Dir(fullpathfile), 0755); err != nil {
 			return err
 		}
 
