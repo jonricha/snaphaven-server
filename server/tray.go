@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"fmt"
 	"log"
 	"os"
 
@@ -36,29 +37,30 @@ func (t *TrayApp) Run() {
 }
 
 func (t *TrayApp) onReady() {
+	ts := GetTrayStrings()
 	systray.SetTitle("SnapHaven")
 	systray.SetTooltip("SnapHaven Server " + GetFormattedVersion())
 
 	// Set system tray icon from embedded icon.ico
 	systray.SetIcon(trayIconBytes)
 
-	mStatus := systray.AddMenuItem("Status: Server Running", "Server Status")
+	mStatus := systray.AddMenuItem(ts.StatusRunning, "Server Status")
 	mStatus.Disable()
 
-	mQR := systray.AddMenuItem("📱 Show Pairing QR Code", "Open pairing page in browser")
-	mDashboard := systray.AddMenuItem("🌐 Open Web Dashboard", "Open management dashboard in browser")
-	mSettings := systray.AddMenuItem("⚙️ Settings", "Open settings tab in browser")
-	mLogs := systray.AddMenuItem("📋 View Live Logs", "Open logs tab in browser")
-	mCheckUpdate := systray.AddMenuItem("🔄 Check for Updates...", "Check for software updates")
-	mAbout := systray.AddMenuItem("ℹ️ About SnapHaven...", "View software version, author, and build details")
+	mQR := systray.AddMenuItem(ts.ShowQRCode, ts.ShowQRTooltip)
+	mDashboard := systray.AddMenuItem(ts.OpenDashboard, ts.DashTooltip)
+	mSettings := systray.AddMenuItem(ts.Settings, ts.SettingsTooltip)
+	mLogs := systray.AddMenuItem(ts.ViewLogs, ts.LogsTooltip)
+	mCheckUpdate := systray.AddMenuItem(ts.CheckUpdates, ts.UpdatesTooltip)
+	mAbout := systray.AddMenuItem(ts.About, ts.AboutTooltip)
 
 	systray.AddSeparator()
-	mToggle := systray.AddMenuItem("Pause Server", "Toggle gRPC sync server")
-	mQuit := systray.AddMenuItem("Quit SnapHaven", "Quit the SnapHaven server application")
+	mToggle := systray.AddMenuItem(ts.PauseServer, "Toggle gRPC sync server")
+	mQuit := systray.AddMenuItem(ts.Quit, ts.QuitTooltip)
 
 	if t.updater != nil {
 		t.updater.SetUpdateCallback(func(info *UpdateInfo) {
-			mCheckUpdate.SetTitle("✨ Install Update (" + info.Version + ")...")
+			mCheckUpdate.SetTitle(fmt.Sprintf(ts.InstallUpdate, info.Version))
 		})
 	}
 
@@ -117,12 +119,12 @@ func (t *TrayApp) onReady() {
 	mToggle.Click(func() {
 		if t.serverMgr.IsRunning() {
 			t.serverMgr.Stop()
-			mStatus.SetTitle("Status: Server Stopped")
-			mToggle.SetTitle("Start Server")
+			mStatus.SetTitle(ts.StatusStopped)
+			mToggle.SetTitle(ts.StartServer)
 		} else {
 			if err := t.serverMgr.Start(); err == nil {
-				mStatus.SetTitle("Status: Server Running")
-				mToggle.SetTitle("Pause Server")
+				mStatus.SetTitle(ts.StatusRunning)
+				mToggle.SetTitle(ts.PauseServer)
 			}
 		}
 	})
