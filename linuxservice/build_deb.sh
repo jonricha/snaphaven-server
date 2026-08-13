@@ -24,11 +24,11 @@ echo "🐧 2. Assembling Debian Package Directory..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$DEB_DIR/DEBIAN"
 mkdir -p "$DEB_DIR/usr/local/bin"
-mkdir -p "$DEB_DIR/etc/systemd/user"
+mkdir -p "$DEB_DIR/etc/systemd/system"
 
 sed "s/1.0.0/$CLEAN_VERSION/g" "$SCRIPT_DIR/control" > "$DEB_DIR/DEBIAN/control"
 cp "$SCRIPT_DIR/snaphaven-server" "$DEB_DIR/usr/local/bin/snaphaven-server"
-cp "$SCRIPT_DIR/snaphaven-server.service" "$DEB_DIR/etc/systemd/user/snaphaven-server.service"
+cp "$SCRIPT_DIR/snaphaven-server.service" "$DEB_DIR/etc/systemd/system/snaphaven-server.service"
 
 chmod +x "$DEB_DIR/usr/local/bin/snaphaven-server"
 
