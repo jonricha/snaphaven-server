@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SnapHavenClient interface {
+	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingReply, error)
 	SendFileInfo(ctx context.Context, opts ...grpc.CallOption) (SnapHaven_SendFileInfoClient, error)
 	SendFiles(ctx context.Context, opts ...grpc.CallOption) (SnapHaven_SendFilesClient, error)
 }
@@ -32,6 +33,15 @@ type snapHavenClient struct {
 
 func NewSnapHavenClient(cc grpc.ClientConnInterface) SnapHavenClient {
 	return &snapHavenClient{cc}
+}
+
+func (c *snapHavenClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingReply, error) {
+	out := new(PingReply)
+	err := c.cc.Invoke(ctx, "/snaphaven.SnapHaven/Ping", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *snapHavenClient) SendFileInfo(ctx context.Context, opts ...grpc.CallOption) (SnapHaven_SendFileInfoClient, error) {
@@ -103,6 +113,7 @@ func (x *snapHavenSendFilesClient) CloseAndRecv() (*FileReply, error) {
 // All implementations must embed UnimplementedSnapHavenServer
 // for forward compatibility
 type SnapHavenServer interface {
+	Ping(context.Context, *PingRequest) (*PingReply, error)
 	SendFileInfo(SnapHaven_SendFileInfoServer) error
 	SendFiles(SnapHaven_SendFilesServer) error
 	mustEmbedUnimplementedSnapHavenServer()
@@ -112,6 +123,9 @@ type SnapHavenServer interface {
 type UnimplementedSnapHavenServer struct {
 }
 
+func (UnimplementedSnapHavenServer) Ping(context.Context, *PingRequest) (*PingReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Ping not implemented")
+}
 func (UnimplementedSnapHavenServer) SendFileInfo(SnapHaven_SendFileInfoServer) error {
 	return status.Errorf(codes.Unimplemented, "method SendFileInfo not implemented")
 }
@@ -129,6 +143,24 @@ type UnsafeSnapHavenServer interface {
 
 func RegisterSnapHavenServer(s grpc.ServiceRegistrar, srv SnapHavenServer) {
 	s.RegisterService(&SnapHaven_ServiceDesc, srv)
+}
+
+func _SnapHaven_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SnapHavenServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/snaphaven.SnapHaven/Ping",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SnapHavenServer).Ping(ctx, req.(*PingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _SnapHaven_SendFileInfo_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -189,7 +221,12 @@ func (x *snapHavenSendFilesServer) Recv() (*FileChunk, error) {
 var SnapHaven_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "snaphaven.SnapHaven",
 	HandlerType: (*SnapHavenServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Ping",
+			Handler:    _SnapHaven_Ping_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "SendFileInfo",

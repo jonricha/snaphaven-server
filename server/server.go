@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -37,6 +39,14 @@ func Hash_bytes_sha256(b []byte) (string, error) {
 	hasher := sha256.New()
 	hasher.Write(b)
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func (s *server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingReply, error) {
+	LogEvent(fmt.Sprintf("📡 Ping received from client (version: %s)", req.GetClientVersion()))
+	return &pb.PingReply{
+		ServerVersion: GetFormattedVersion(),
+		ServerTimeMs:  time.Now().UnixMilli(),
+	}, nil
 }
 
 func (s *server) shouldSend(path string, remotehash string) bool {

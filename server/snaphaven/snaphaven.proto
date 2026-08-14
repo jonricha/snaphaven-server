@@ -6,8 +6,18 @@ option java_package = "com.snaphaven.app";
 package snaphaven;
 
 service SnapHaven {
+    rpc Ping (PingRequest) returns (PingReply) {}
     rpc SendFileInfo (stream FileInfoRequest) returns (stream FileInfoReply) {}
     rpc SendFiles (stream FileChunk) returns (FileReply) {}
+}
+
+message PingRequest {
+    string client_version = 1;
+}
+
+message PingReply {
+    string server_version = 1;
+    int64 server_time_ms = 2;
 }
 
 message FileInfoRequest {

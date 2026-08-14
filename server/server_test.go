@@ -230,3 +230,20 @@ func TestSendFilesWithDir(t *testing.T) {
 	input[0].shouldsend = false
 	checkFiles(t, client, input)
 }
+
+func TestPing(t *testing.T) {
+	teardown, client, _ := setupTestCase(t)
+	defer teardown(t)
+
+	reply, err := client.Ping(context.Background(), &pb.PingRequest{ClientVersion: "1.0.0-test"})
+	if err != nil {
+		t.Fatalf("Ping failed: %v", err)
+	}
+
+	if reply.GetServerVersion() == "" {
+		t.Fatalf("Expected non-empty server version")
+	}
+	if reply.GetServerTimeMs() <= 0 {
+		t.Fatalf("Expected positive server time, got %d", reply.GetServerTimeMs())
+	}
+}
