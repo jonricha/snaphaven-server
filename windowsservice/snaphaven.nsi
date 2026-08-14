@@ -3,6 +3,7 @@
 Name "SnapHaven Server"
 OutFile "SnapHavenInstaller.exe"
 InstallDir "$PROGRAMFILES\SnapHavenServer"
+RequestExecutionLevel admin
 
 Var SYNCDIR
 
@@ -84,7 +85,8 @@ Section "MainSection" SEC01
   Call EscapeJsonString
   Pop $0
 
-  # Write initial config.json with chosen sync directory
+  # Write initial config.json with chosen sync directory (only if config doesn't already exist)
+  IfFileExists "$APPDATA\SnapHaven\config.json" skip_config
   FileOpen $1 "$APPDATA\SnapHaven\config.json" w
   FileWrite $1 '{\r\n'
   FileWrite $1 '  "sync_directory": "$0",\r\n'
@@ -94,6 +96,7 @@ Section "MainSection" SEC01
   FileWrite $1 '  "open_browser_on_launch": false\r\n'
   FileWrite $1 '}\r\n'
   FileClose $1
+skip_config:
 
   # Create a shortcut in the Start Menu Startup folder for auto-launch in tray
   CreateShortCut "$SMSTARTUP\SnapHaven Server.lnk" "$INSTDIR\snaphaven.exe"

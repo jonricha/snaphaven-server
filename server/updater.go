@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -338,9 +339,14 @@ func (um *UpdateManager) ApplyUpdate() error {
 
 	LogEvent(fmt.Sprintf("🚀 Executing updater installer: %s /S", installerPath))
 
-	// Launch installer silently using Windows cmd /c start or exec.Command
-	// Note: NSIS installer accepts /S for silent install
-	cmd := exec.Command(installerPath, "/S")
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		psCmd := fmt.Sprintf("Start-Process -FilePath '%s' -ArgumentList '/S' -Verb RunAs", installerPath)
+		cmd = exec.Command("powershell", "-Command", psCmd)
+	} else {
+		cmd = exec.Command(installerPath, "/S")
+	}
+
 	err := cmd.Start()
 	if err != nil {
 		um.setError(fmt.Sprintf("Failed to launch installer: %v", err))
