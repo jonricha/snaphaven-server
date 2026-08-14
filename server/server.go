@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -133,6 +134,14 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager) (*grpc.S
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		arg := strings.ToLower(os.Args[1])
+		if arg == "open" || arg == "dashboard" || arg == "qr" || arg == "status" || arg == "--open" || arg == "-open" || arg == "help" || arg == "--help" || arg == "-h" {
+			HandleCLICommand(arg)
+			return
+		}
+	}
+
 	// 1. Initialize Log Hub & Streamer
 	configPath, _ := GetDefaultConfigPath()
 	logFilePath := filepath.Join(filepath.Dir(configPath), "snaphaven.log")

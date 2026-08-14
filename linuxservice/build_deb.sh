@@ -25,10 +25,14 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$DEB_DIR/DEBIAN"
 mkdir -p "$DEB_DIR/usr/local/bin"
 mkdir -p "$DEB_DIR/etc/systemd/system"
+mkdir -p "$DEB_DIR/usr/share/applications"
+mkdir -p "$DEB_DIR/usr/share/pixmaps"
 
 sed "s/1.0.0/$CLEAN_VERSION/g" "$SCRIPT_DIR/control" > "$DEB_DIR/DEBIAN/control"
 cp "$SCRIPT_DIR/snaphaven-server" "$DEB_DIR/usr/local/bin/snaphaven-server"
 cp "$SCRIPT_DIR/snaphaven-server.service" "$DEB_DIR/etc/systemd/system/snaphaven-server.service"
+cp "$SCRIPT_DIR/snaphaven-server.desktop" "$DEB_DIR/usr/share/applications/snaphaven-server.desktop"
+cp "$SERVER_DIR/icon.png" "$DEB_DIR/usr/share/pixmaps/snaphaven.png"
 
 chmod +x "$DEB_DIR/usr/local/bin/snaphaven-server"
 

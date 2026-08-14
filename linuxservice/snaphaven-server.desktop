@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SnapHaven Server
+Comment=Open SnapHaven Photo Backup Web Dashboard & Pairing QR Code
+Exec=/usr/local/bin/snaphaven-server open
+Icon=snaphaven
+Terminal=false
+Categories=Utility;Network;
+Keywords=photos;backup;sync;snaphaven;
