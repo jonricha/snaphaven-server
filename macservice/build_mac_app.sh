@@ -23,14 +23,15 @@ cd "$SERVER_DIR"
 CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-X 'main.Version=$RAW_VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-arm64" .
 CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-X 'main.Version=$RAW_VERSION' -X 'main.Commit=$COMMIT' -X 'main.BuildTime=$BUILDDATE'" -o "$SCRIPT_DIR/snaphaven-mac-amd64" .
 
-echo "🍏 2. Assembling macOS App Bundle..."
+echo "🍏 2. Assembling macOS Universal App Bundle..."
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$APP_NAME/Contents/MacOS"
 mkdir -p "$BUILD_DIR/$APP_NAME/Contents/Resources"
 
 sed "s/1.0.0/$CLEAN_VERSION/g" "$SCRIPT_DIR/Info.plist" > "$BUILD_DIR/$APP_NAME/Contents/Info.plist"
-cp "$SCRIPT_DIR/snaphaven-mac-arm64" "$BUILD_DIR/$APP_NAME/Contents/MacOS/snaphaven"
+lipo -create -output "$BUILD_DIR/$APP_NAME/Contents/MacOS/snaphaven" "$SCRIPT_DIR/snaphaven-mac-arm64" "$SCRIPT_DIR/snaphaven-mac-amd64"
 chmod +x "$BUILD_DIR/$APP_NAME/Contents/MacOS/snaphaven"
+rm -f "$SCRIPT_DIR/snaphaven-mac-arm64" "$SCRIPT_DIR/snaphaven-mac-amd64"
 
 echo "🚚 3. Packaging Release Archive..."
 cd "$BUILD_DIR"
