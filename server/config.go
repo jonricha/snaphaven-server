@@ -124,7 +124,13 @@ func (cm *ConfigManager) Update(newCfg Config) error {
 }
 
 func (cm *ConfigManager) IsFirstRun() bool {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	return cm.isFirstRun
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	res := cm.isFirstRun || cm.Config.IsFirstRun
+	if res {
+		cm.isFirstRun = false
+		cm.Config.IsFirstRun = false
+		go cm.Save()
+	}
+	return res
 }

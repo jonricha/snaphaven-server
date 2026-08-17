@@ -1127,6 +1127,9 @@ func (s *SetupServer) Start() {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 				return
 			}
+			if err := SetAutoStartConfig(newCfg.AutoStartOnBoot); err != nil {
+				log.Printf("⚠️ Failed to set autostart config: %v", err)
+			}
 			s.ServerManager.Restart()
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 			return

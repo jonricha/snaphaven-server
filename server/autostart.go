@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // SetAutoStartConfig configures OS-native background auto-start on boot.
@@ -39,6 +40,13 @@ func SetAutoStartConfig(enabled bool) error {
 			return err
 		}
 
+		var execArgs string
+		if strings.Contains(exePath, ".app/Contents/MacOS/") {
+			execArgs = fmt.Sprintf("<string>open</string>\n        <string>-a</string>\n        <string>%s</string>", exePath[:strings.Index(exePath, ".app/Contents/MacOS/")+4])
+		} else {
+			execArgs = fmt.Sprintf("<string>%s</string>", exePath)
+		}
+
 		plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -47,14 +55,14 @@ func SetAutoStartConfig(enabled bool) error {
     <string>app.snaphaven.server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>%s</string>
+        %s
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <false/>
 </dict>
-</plist>`, exePath)
+</plist>`, execArgs)
 
 		return os.WriteFile(plistPath, []byte(plistContent), 0644)
 
