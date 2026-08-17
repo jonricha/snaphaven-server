@@ -518,10 +518,22 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     <div style="margin-top: 6px;"><strong>CA Fingerprint:</strong> {{.CAFingerprint}}</div>
                 </div>
 
+                {{if eq .OS "windows"}}
                 <div style="margin-top: 20px;">
                     <button id="fwBtn" class="btn">🛡️ Allow Windows Firewall Access</button>
                     <div id="fwStatus" style="font-size: 0.8rem; margin-top: 8px; color: var(--text-muted);"></div>
                 </div>
+                {{end}}
+
+                {{if eq .OS "darwin"}}
+                <div style="margin-top: 20px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 14px; text-align: left; font-size: 0.85rem; color: var(--text-muted);">
+                    <strong style="color: #38bdf8;">🍏 macOS Connection & Firewall Note:</strong>
+                    <ul style="margin: 6px 0 0 18px; padding: 0; line-height: 1.5;">
+                        <li>If pairing fails, check <strong>System Settings > Network > Firewall</strong> and ensure <code>SnapHaven</code> is set to <strong>Allow incoming connections</strong>.</li>
+                        <li>On macOS 15 (Sequoia)+, verify <strong>System Settings > Privacy & Security > Local Network</strong> is enabled for SnapHaven.</li>
+                    </ul>
+                </div>
+                {{end}}
             </div>
         </div>
 
@@ -807,20 +819,23 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         window.addEventListener('load', handleHashRouting);
         window.addEventListener('hashchange', handleHashRouting);
 
-        document.getElementById("fwBtn").addEventListener("click", () => {
-            document.getElementById("fwStatus").innerText = "Checking firewall rules...";
-            fetch("/api/firewall", { method: "POST" })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.message) {
-                        document.getElementById("fwStatus").innerText = data.message;
-                    } else if (data.success) {
-                        document.getElementById("fwStatus").innerText = "✅ Firewall configuration triggered!";
-                    } else {
-                        document.getElementById("fwStatus").innerText = "❌ " + (data.error || "Failed");
-                    }
-                });
-        });
+        const fwBtn = document.getElementById("fwBtn");
+        if (fwBtn) {
+            fwBtn.addEventListener("click", () => {
+                document.getElementById("fwStatus").innerText = "Checking firewall rules...";
+                fetch("/api/firewall", { method: "POST" })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.message) {
+                            document.getElementById("fwStatus").innerText = data.message;
+                        } else if (data.success) {
+                            document.getElementById("fwStatus").innerText = "✅ Firewall configuration triggered!";
+                        } else {
+                            document.getElementById("fwStatus").innerText = "❌ " + (data.error || "Failed");
+                        }
+                    });
+            });
+        }
 
         function updateStatusUI() {
             fetch("/api/status")
@@ -1065,6 +1080,7 @@ func (s *SetupServer) Start() {
 			JSONData      string
 			Config        Config
 			IsFirstRun    bool
+			OS            string
 		}{
 			IP:            ip,
 			Port:          portNum,
@@ -1072,6 +1088,7 @@ func (s *SetupServer) Start() {
 			JSONData:      string(jsonData),
 			Config:        s.ConfigManager.Config,
 			IsFirstRun:    s.ConfigManager.IsFirstRun(),
+			OS:            runtime.GOOS,
 		}
 
 		w.Header().Set("Content-Type", "text/html")
