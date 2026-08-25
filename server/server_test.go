@@ -9,9 +9,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"testing"
 
