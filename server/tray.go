@@ -94,9 +94,6 @@ func (t *TrayApp) onReady() {
 					}
 					t.updater.ApplyUpdate()
 				}()
-				if t.setupServer != nil {
-					OpenBrowser(t.setupServer.ServerURL + "/#settings")
-				}
 				return
 			}
 		}
