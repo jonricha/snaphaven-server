@@ -630,9 +630,9 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     <div style="margin-top: 6px;"><strong>GitHub Repository:</strong> <a href="https://github.com/jonricha/snaphaven-server" target="_blank" style="color: #38bdf8; text-decoration: none;">https://github.com/jonricha/snaphaven-server</a></div>
                 </div>
 
-                <div style="display: flex; gap: 12px;">
                     <button class="btn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
                     <a href="https://github.com/jonricha/snaphaven-server" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">🌐 View Source on GitHub</a>
+                    <a href="/licenses" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">📜 Open Source Licenses</a>
                 </div>
             </div>
         </div>
@@ -1184,6 +1184,16 @@ func (s *SetupServer) Start() {
 				return
 			}
 		}
+	})
+
+	mux.HandleFunc("/licenses", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		notices, err := os.ReadFile("THIRD_PARTY_NOTICES.txt")
+		if err != nil {
+			http.Error(w, "SnapHaven Server - Open Source Licenses (Apache 2.0, BSD, MIT)", http.StatusOK)
+			return
+		}
+		w.Write(notices)
 	})
 
 	mux.HandleFunc("/api/pair", func(w http.ResponseWriter, r *http.Request) {
