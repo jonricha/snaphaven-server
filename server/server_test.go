@@ -92,22 +92,23 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, contex
 		t.Fatal(err)
 	}
 
-	port := ":50010"
+	port := ":0"
 	failurechannel := make(chan error, 1)
 	s, lis := RegisterServer(tempdir, port, cm)
+	actualPort := fmt.Sprintf(":%d", lis.Addr().(*net.TCPAddr).Port)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			failurechannel <- err
 		}
 		close(failurechannel)
 	}()
+	conn, client, ctx, cancel := startClient(t, actualPort, cm)
 	select { // check if the server failed to start
 	case err := <-failurechannel:
 		t.Fatalf("failed to serve: %v", err)
 	default:
 		t.Log("Server up and running")
 	}
-	conn, client, ctx, cancel := startClient(t, port, cm)
 
 	t.Log("setupTestCase <<")
 	return func(t *testing.T) {
