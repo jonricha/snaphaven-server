@@ -8,6 +8,16 @@ import (
 	"unsafe"
 )
 
+func init() {
+	user32 := syscall.NewLazyDLL("user32.dll")
+	setDpi := user32.NewProc("SetProcessDpiAwarenessContext")
+	if err := setDpi.Find(); err == nil {
+		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+		const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ^uintptr(3)
+		setDpi.Call(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+	}
+}
+
 func ShowAboutDialog(version, commit, buildTime string) {
 	msg := fmt.Sprintf(
 		"SnapHaven Server\n"+
