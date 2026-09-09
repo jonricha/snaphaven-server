@@ -483,7 +483,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 
     <div class="navbar">
         <div class="brand">
-            🛡️ SnapHaven Server <span class="version-badge" id="navVersionBadge">v...</span>
+            🛡️ SnapHaven Server <span class="version-badge" id="navVersionBadge">{{.FormattedVersion}}</span>
         </div>
         <div class="nav-links">
             <button id="btn-pairing" class="nav-btn active" onclick="showTab('pairing')">📱 Pairing QR Code</button>
@@ -587,10 +587,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 12px;">
                     <div>
                         <div style="font-size: 0.9rem; color: var(--text-muted);">Installed Server Version</div>
-                        <div style="font-size: 1.1rem; font-weight: bold; margin-top: 4px;" id="settingsVersionText">Loading...</div>
-                        <div id="updateStatusSubtext" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;"></div>
+                        <div style="font-size: 1.1rem; font-weight: bold; margin-top: 4px;" id="settingsVersionText">{{.FormattedVersion}}</div>
+                        <div id="updateStatusSubtext" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">{{if .IsStorePackage}}📦 Updates are managed automatically by the Microsoft Store.{{end}}</div>
                     </div>
+                    {{if not .IsStorePackage}}
                     <button type="button" class="btn" id="checkUpdatesBtn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
+                    {{end}}
                 </div>
             </div>
         </div>
@@ -622,15 +624,17 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 </div>
 
                 <div class="info-box" style="margin-bottom: 20px;">
-                    <div><strong>Version:</strong> <span id="aboutVersionStr">Loading...</span></div>
-                    <div style="margin-top: 6px;"><strong>Git Commit:</strong> <span id="aboutCommitStr">Loading...</span></div>
-                    <div style="margin-top: 6px;"><strong>Build Timestamp:</strong> <span id="aboutBuildTimeStr">Loading...</span></div>
+                    <div><strong>Version:</strong> <span id="aboutVersionStr">{{.Version}}</span></div>
+                    <div style="margin-top: 6px;"><strong>Git Commit:</strong> <span id="aboutCommitStr">{{.Commit}}</span></div>
+                    <div style="margin-top: 6px;"><strong>Build Timestamp:</strong> <span id="aboutBuildTimeStr">{{.BuildTime}}</span></div>
                     <div style="margin-top: 6px;"><strong>Author:</strong> Jonathan Richardson</div>
                     <div style="margin-top: 6px;"><strong>License:</strong> MIT License</div>
                     <div style="margin-top: 6px;"><strong>GitHub Repository:</strong> <a href="https://github.com/jonricha/snaphaven-server" target="_blank" style="color: #38bdf8; text-decoration: none;">https://github.com/jonricha/snaphaven-server</a></div>
                 </div>
 
+                    {{if not .IsStorePackage}}
                     <button class="btn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
+                    {{end}}
                     <a href="https://github.com/jonricha/snaphaven-server" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">🌐 View Source on GitHub</a>
                     <a href="/licenses" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">📜 Open Source Licenses</a>
                 </div>
@@ -670,6 +674,19 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     if (document.getElementById("aboutCommitStr")) document.getElementById("aboutCommitStr").innerText = data.commit || "none";
                     if (document.getElementById("aboutBuildTimeStr")) document.getElementById("aboutBuildTimeStr").innerText = data.build_time || "unknown";
 
+                    if (data.is_store_package) {
+                        const sub = document.getElementById("updateStatusSubtext");
+                        if (sub) {
+                            sub.innerText = "📦 Updates are managed automatically by the Microsoft Store.";
+                            sub.style.color = "var(--text-muted)";
+                        }
+                        const btn = document.getElementById("checkUpdatesBtn");
+                        if (btn) {
+                            btn.style.display = "none";
+                        }
+                        return;
+                    }
+
                     if (data.update_status) {
                         const st = data.update_status;
                         const sub = document.getElementById("updateStatusSubtext");
@@ -699,6 +716,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     }
                 });
         }
+        fetchVersionInfo();
 
         function checkUpdates(manual = false) {
             const btn = document.getElementById("checkUpdatesBtn");
@@ -981,16 +999,27 @@ func (s *SetupServer) Start() {
 			status = UpdateStatus{State: StateIdle, CurrentVer: GetVersion()}
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"version":       GetVersion(),
-			"commit":        GetCommit(),
-			"build_time":    GetBuildTime(),
-			"formatted":     GetFormattedVersion(),
-			"update_status": status,
+			"version":          GetVersion(),
+			"commit":           GetCommit(),
+			"build_time":       GetBuildTime(),
+			"formatted":        GetFormattedVersion(),
+			"update_status":    status,
+			"is_store_package": IsStorePackage(),
 		})
 	})
 
 	mux.HandleFunc("/api/check-update", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if IsStorePackage() {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":         true,
+				"has_update":      false,
+				"is_store":        true,
+				"message":         "Updates are managed automatically by the Microsoft Store.",
+				"current_version": GetVersion(),
+			})
+			return
+		}
 		if s.UpdateManager == nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Update manager unavailable"})
 			return
@@ -1013,6 +1042,13 @@ func (s *SetupServer) Start() {
 
 	mux.HandleFunc("/api/perform-update", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if IsStorePackage() {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Updates are managed automatically by the Microsoft Store.",
+			})
+			return
+		}
 		if s.UpdateManager == nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Update manager unavailable"})
 			return
@@ -1074,21 +1110,31 @@ func (s *SetupServer) Start() {
 		}
 
 		data := struct {
-			IP            string
-			Port          int
-			CAFingerprint string
-			JSONData      string
-			Config        Config
-			IsFirstRun    bool
-			OS            string
+			IP               string
+			Port             int
+			CAFingerprint    string
+			JSONData         string
+			Config           Config
+			IsFirstRun       bool
+			OS               string
+			IsStorePackage   bool
+			FormattedVersion string
+			Version          string
+			Commit           string
+			BuildTime        string
 		}{
-			IP:            ip,
-			Port:          portNum,
-			CAFingerprint: s.CAFingerprint,
-			JSONData:      string(jsonData),
-			Config:        s.ConfigManager.Config,
-			IsFirstRun:    s.ConfigManager.IsFirstRun(),
-			OS:            runtime.GOOS,
+			IP:               ip,
+			Port:             portNum,
+			CAFingerprint:    s.CAFingerprint,
+			JSONData:         string(jsonData),
+			Config:           s.ConfigManager.Config,
+			IsFirstRun:       s.ConfigManager.IsFirstRun(),
+			OS:               runtime.GOOS,
+			IsStorePackage:   IsStorePackage(),
+			FormattedVersion: GetFormattedVersion(),
+			Version:          GetVersion(),
+			Commit:           GetCommit(),
+			BuildTime:        GetBuildTime(),
 		}
 
 		w.Header().Set("Content-Type", "text/html")
@@ -1239,7 +1285,7 @@ func (s *SetupServer) Start() {
 
 	go func() {
 		log.Printf("Setup Web Interface running at: %s", s.ServerURL)
-		if s.ConfigManager.IsFirstRun() {
+		if s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage() {
 			OpenBrowser(s.ServerURL)
 		}
 		if err := server.Serve(s.HTTPListener); err != nil && err != http.ErrServerClosed {

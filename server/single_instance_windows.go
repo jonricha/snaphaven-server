@@ -17,7 +17,7 @@ var (
 const ERROR_ALREADY_EXISTS = 183
 
 func EnsureSingleInstance() (uintptr, bool) {
-	mutexName, err := syscall.UTF16PtrFromString("Global\\SnapHavenServerSingleInstanceMutex")
+	mutexName, err := syscall.UTF16PtrFromString("Local\\SnapHavenServerSingleInstanceMutex")
 	if err != nil {
 		return 0, true
 	}

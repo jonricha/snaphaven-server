@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -111,7 +112,26 @@ func (um *UpdateManager) GetStatus() UpdateStatus {
 	return um.status
 }
 
+// IsStorePackage reports whether the application is running inside a Microsoft Store / MSIX package.
+func IsStorePackage() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(exe)
+	return strings.Contains(lower, "windowsapps") || os.Getenv("MSIX_PACKAGE_NAME") != ""
+}
+
 func (um *UpdateManager) CheckForUpdates() (*UpdateInfo, bool, error) {
+	if IsStorePackage() {
+		um.mu.Lock()
+		um.status.State = StateNoUpdate
+		um.status.LatestVer = GetVersion()
+		um.status.ErrorMessage = ""
+		um.mu.Unlock()
+		return &UpdateInfo{Version: GetVersion()}, false, nil
+	}
+
 	um.mu.Lock()
 	um.status.State = StateChecking
 	um.status.ErrorMessage = ""
@@ -204,6 +224,10 @@ func (um *UpdateManager) CheckForUpdates() (*UpdateInfo, bool, error) {
 }
 
 func (um *UpdateManager) StartAutoCheckTicker(interval time.Duration) {
+	if IsStorePackage() {
+		return // Do not run background auto-check on Store builds
+	}
+
 	if interval <= 0 {
 		interval = DefaultCheckInterval
 	}
@@ -229,6 +253,10 @@ func (um *UpdateManager) StartAutoCheckTicker(interval time.Duration) {
 }
 
 func (um *UpdateManager) DownloadUpdate() error {
+	if IsStorePackage() {
+		return fmt.Errorf("updates are managed automatically by the Microsoft Store")
+	}
+
 	um.mu.Lock()
 	info := um.status.UpdateInfo
 	if info == nil || info.AssetURL == "" {
@@ -320,6 +348,10 @@ func (um *UpdateManager) DownloadUpdate() error {
 }
 
 func (um *UpdateManager) ApplyUpdate() error {
+	if IsStorePackage() {
+		return fmt.Errorf("updates are managed automatically by the Microsoft Store")
+	}
+
 	um.mu.Lock()
 	installerPath := um.downloadPath
 	state := um.status.State

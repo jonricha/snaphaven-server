@@ -52,15 +52,16 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 
 	homeDir, _ := os.UserHomeDir()
 	defaultSync := filepath.Join(homeDir, "snaphaven")
+	defaultCertDir := filepath.Join(filepath.Dir(path), "certs")
 
 	cm := &ConfigManager{
 		filePath: path,
 		Config: Config{
 			SyncDirectory:       defaultSync,
 			GRPCPort:            ":50005",
-			CertDirectory:       "certs",
+			CertDirectory:       defaultCertDir,
 			AutoStartOnBoot:     false,
-			OpenBrowserOnLaunch: false,
+			OpenBrowserOnLaunch: true,
 		},
 	}
 
@@ -70,6 +71,16 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 			cm.Config.IsFirstRun = true
 			cm.Save()
 		}
+	}
+
+	// Always ensure CertDirectory is an absolute writable path in user AppData
+	if cm.Config.CertDirectory == "" || !filepath.IsAbs(cm.Config.CertDirectory) {
+		if cm.Config.CertDirectory == "" || cm.Config.CertDirectory == "certs" {
+			cm.Config.CertDirectory = defaultCertDir
+		} else {
+			cm.Config.CertDirectory = filepath.Join(filepath.Dir(path), cm.Config.CertDirectory)
+		}
+		cm.Save()
 	}
 
 	if cm.Config.ServerID == "" {

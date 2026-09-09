@@ -54,11 +54,18 @@ jobs:
             makensis snaphaven.nsi
           }
 
-      - name: Upload Windows Release Asset
+      - name: Build MSIX Package (Microsoft Store)
+        run: |
+          $TAG = if ("${{ github.ref_name }}" -ne "") { "${{ github.ref_name }}" } else { "v1.0.0" }
+          & .\msix\build_msix.ps1 -Tag $TAG -ExecutablePath .\server\snaphaven.exe -OutputDir .\msix\dist
+
+      - name: Upload Windows Release Assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: windowsservice/SnapHavenInstaller.exe
+          files: |
+            windowsservice/SnapHavenInstaller.exe
+            msix/dist/*.msix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

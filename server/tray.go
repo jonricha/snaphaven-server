@@ -51,14 +51,20 @@ func (t *TrayApp) onReady() {
 	mDashboard := systray.AddMenuItem(ts.OpenDashboard, ts.DashTooltip)
 	mSettings := systray.AddMenuItem(ts.Settings, ts.SettingsTooltip)
 	mLogs := systray.AddMenuItem(ts.ViewLogs, ts.LogsTooltip)
-	mCheckUpdate := systray.AddMenuItem(ts.CheckUpdates, ts.UpdatesTooltip)
+	var mCheckUpdate *systray.MenuItem
+	if IsStorePackage() {
+		mStoreUpdate := systray.AddMenuItem("Updates: Managed by Microsoft Store", "Updates are installed automatically by the Microsoft Store")
+		mStoreUpdate.Disable()
+	} else {
+		mCheckUpdate = systray.AddMenuItem(ts.CheckUpdates, ts.UpdatesTooltip)
+	}
 	mAbout := systray.AddMenuItem(ts.About, ts.AboutTooltip)
 
 	systray.AddSeparator()
 	mToggle := systray.AddMenuItem(ts.PauseServer, "Toggle gRPC sync server")
 	mQuit := systray.AddMenuItem(ts.Quit, ts.QuitTooltip)
 
-	if t.updater != nil {
+	if t.updater != nil && mCheckUpdate != nil {
 		t.updater.SetUpdateCallback(func(info *UpdateInfo) {
 			mCheckUpdate.SetTitle(fmt.Sprintf(ts.InstallUpdate, info.Version))
 		})
@@ -80,31 +86,33 @@ func (t *TrayApp) onReady() {
 		OpenBrowser(t.setupServer.ServerURL + "/#logs")
 	})
 
-	mCheckUpdate.Click(func() {
-		if t.updater != nil {
-			st := t.updater.GetStatus()
-			if st.State == StateUpdateAvailable || st.State == StateReadyToInstall {
-				LogEvent("🚀 User initiated update from System Tray menu...")
-				go func() {
-					if st.State == StateUpdateAvailable {
-						err := t.updater.DownloadUpdate()
-						if err != nil {
-							return
+	if mCheckUpdate != nil {
+		mCheckUpdate.Click(func() {
+			if t.updater != nil {
+				st := t.updater.GetStatus()
+				if st.State == StateUpdateAvailable || st.State == StateReadyToInstall {
+					LogEvent("🚀 User initiated update from System Tray menu...")
+					go func() {
+						if st.State == StateUpdateAvailable {
+							err := t.updater.DownloadUpdate()
+							if err != nil {
+								return
+							}
 						}
-					}
-					t.updater.ApplyUpdate()
-				}()
-				return
+						t.updater.ApplyUpdate()
+					}()
+					return
+				}
 			}
-		}
 
-		if t.setupServer != nil {
-			OpenBrowser(t.setupServer.ServerURL + "/#settings")
-		}
-		if t.updater != nil {
-			go t.updater.CheckForUpdates()
-		}
-	})
+			if t.setupServer != nil {
+				OpenBrowser(t.setupServer.ServerURL + "/#settings")
+			}
+			if t.updater != nil {
+				go t.updater.CheckForUpdates()
+			}
+		})
+	}
 
 	mAbout.Click(func() {
 		go ShowAboutDialog(GetVersion(), GetCommit(), GetBuildTime())

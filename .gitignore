@@ -17,8 +17,9 @@ SnapHavenServer*
 
 # Local IDE & OS files
 .DS_Store
-Thumbs.db
-.vscode/
-.idea/
-.idea_old/
 *.swp
+
+# MSIX Packaging Artifacts
+msix/dist/
+msix/temp_stage/
+*.msix
