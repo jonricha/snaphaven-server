@@ -88,10 +88,10 @@ if (Test-Path (Join-Path $PSScriptRoot "Resources.pri")) {
 # Copy snaphaven.exe
 Copy-Item -Path $ExecutablePath -Destination (Join-Path $stageDir "snaphaven.exe") -Force
 
-# Read and update AppxManifest.xml with target version
+# Read and update AppxManifest.xml with target version (only update Identity Version, not MinVersion)
 $manifestSource = Join-Path $PSScriptRoot "AppxManifest.xml"
 $manifestContent = Get-Content -Path $manifestSource -Raw
-$updatedManifest = [regex]::Replace($manifestContent, 'Version="[0-9.]+"', "Version=""$msixVersion""")
+$updatedManifest = [regex]::Replace($manifestContent, '(?<=<Identity\b[^>]*\bVersion=")[^"]+', $msixVersion)
 $stageManifest = Join-Path $stageDir "AppxManifest.xml"
 Set-Content -Path $stageManifest -Value $updatedManifest -Encoding UTF8
 
