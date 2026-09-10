@@ -519,9 +519,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 </div>
 
                 {{if eq .OS "windows"}}
-                <div style="margin-top: 20px;">
-                    <button id="fwBtn" class="btn">🛡️ Allow Windows Firewall Access</button>
-                    <div id="fwStatus" style="font-size: 0.8rem; margin-top: 8px; color: var(--text-muted);"></div>
+                <div style="margin-top: 20px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 14px; text-align: left; font-size: 0.85rem; color: var(--text-muted);">
+                    <strong style="color: #38bdf8;">🛡️ Windows Connection & Firewall Note:</strong>
+                    <ul style="margin: 6px 0 0 18px; padding: 0; line-height: 1.5;">
+                        <li>Windows Defender Firewall automatically prompts on launch to allow local network connections.</li>
+                        <li>If pairing fails, open <strong>Windows Security > Firewall & network protection > Allow an app through firewall</strong> and ensure <code>SnapHaven Server</code> is allowed on <strong>Private networks</strong>.</li>
+                    </ul>
                 </div>
                 {{end}}
 
@@ -837,23 +840,6 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         window.addEventListener('load', handleHashRouting);
         window.addEventListener('hashchange', handleHashRouting);
 
-        const fwBtn = document.getElementById("fwBtn");
-        if (fwBtn) {
-            fwBtn.addEventListener("click", () => {
-                document.getElementById("fwStatus").innerText = "Checking firewall rules...";
-                fetch("/api/firewall", { method: "POST" })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.message) {
-                            document.getElementById("fwStatus").innerText = data.message;
-                        } else if (data.success) {
-                            document.getElementById("fwStatus").innerText = "✅ Firewall configuration triggered!";
-                        } else {
-                            document.getElementById("fwStatus").innerText = "❌ " + (data.error || "Failed");
-                        }
-                    });
-            });
-        }
 
         function updateStatusUI() {
             fetch("/api/status")
@@ -1258,28 +1244,6 @@ func (s *SetupServer) Start() {
 		json.NewEncoder(w).Encode(PairResponse{Success: true, Certificate: string(certBundle)})
 	})
 
-	mux.HandleFunc("/api/firewall", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		parts := strings.Split(s.ConfigManager.Config.GRPCPort, ":")
-		portNum := "50005"
-		if len(parts) > 1 {
-			portNum = parts[len(parts)-1]
-		}
-		httpPort := fmt.Sprintf("%d", s.HTTPListener.Addr().(*net.TCPAddr).Port)
-
-		if runtime.GOOS == "windows" {
-			cmdStr := fmt.Sprintf("netsh advfirewall firewall add rule name=\"SnapHaven Server\" dir=in action=allow protocol=TCP localport=%s,%s", portNum, httpPort)
-			psCmd := fmt.Sprintf("Start-Process netsh -ArgumentList 'advfirewall firewall add rule name=\"SnapHaven Server\" dir=in action=allow protocol=TCP localport=%s,%s' -Verb RunAs", portNum, httpPort)
-			err := exec.Command("powershell", "-Command", psCmd).Start()
-			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error(), "cmd": cmdStr, "os": "windows"})
-				return
-			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Elevated firewall prompt sent to Windows!", "cmd": cmdStr, "os": "windows"})
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Firewall check completed."})
-	})
 
 	server := &http.Server{Handler: mux}
 
