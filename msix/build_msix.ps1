@@ -10,13 +10,17 @@ param(
     ),
 
     [Parameter(Mandatory = $false)]
-    [string]$ExecutablePath = "$PSScriptRoot\..\server\snaphaven.exe",
+    [string]$ExecutablePath = "",
 
     [Parameter(Mandatory = $false)]
-    [string]$OutputDir = "$PSScriptRoot\dist"
+    [string]$OutputDir = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ExecutablePath) { $ExecutablePath = Join-Path $scriptDir "..\server\snaphaven.exe" }
+if (-not $OutputDir) { $OutputDir = Join-Path $scriptDir "dist" }
 
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host " SnapHaven Server MSIX Packager" -ForegroundColor Cyan
