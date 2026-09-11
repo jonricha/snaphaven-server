@@ -23,6 +23,21 @@ Official Website: [https://snaphaven.app](https://snaphaven.app)
 
 ---
 
+## Installation
+
+### Windows (Microsoft Store & winget)
+SnapHaven Server is available directly on the Microsoft Store with automated updates:
+- **Microsoft Store**: [Get SnapHaven Server](https://apps.microsoft.com/detail/9N6T9F73803J)
+- **Windows Package Manager (winget)**:
+  ```powershell
+  winget install "SnapHaven Server"
+  ```
+  *(or `winget install 9N6T9F73803J`)*
+
+For standalone Windows installers, universal macOS app bundles, Linux packages (`.deb`), and Docker/NAS setups, visit [snaphaven.app/download](https://snaphaven.app/download.html) or the [Releases](https://github.com/jonricha/snaphaven-server/releases) page.
+
+---
+
 ## Quickstart
 
 ### Prerequisites
