@@ -576,10 +576,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                         <label for="grpcPort">gRPC Listen Port</label>
                         <input type="text" id="grpcPort" value="{{.Config.GRPCPort}}">
                     </div>
+                    {{if ne .OS "windows"}}
                     <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                         <input type="checkbox" id="autoStart" {{if .Config.AutoStartOnBoot}}checked{{end}}>
                         <label for="autoStart" style="margin: 0;">Launch SnapHaven automatically on system startup</label>
                     </div>
+                    {{end}}
                     <button type="submit" class="btn">💾 Save & Restart Server</button>
                     <div id="settingsStatus" style="margin-top: 10px; font-size: 0.85rem;"></div>
                 </form>
@@ -873,13 +875,14 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             e.preventDefault();
             const statusEl = document.getElementById("settingsStatus");
             statusEl.innerText = "Saving settings...";
+            const autoStartEl = document.getElementById("autoStart");
             fetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     sync_directory: document.getElementById("syncDir").value,
                     grpc_port: document.getElementById("grpcPort").value,
-                    auto_start_on_boot: document.getElementById("autoStart").checked
+                    auto_start_on_boot: autoStartEl ? autoStartEl.checked : true
                 })
             })
             .then(r => r.json())
