@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -249,4 +250,58 @@ func TestPing(t *testing.T) {
 	if reply.GetServerTimeMs() <= 0 {
 		t.Fatalf("Expected positive server time, got %d", reply.GetServerTimeMs())
 	}
+}
+
+func TestSendFilesMultiChunk(t *testing.T) {
+	testFile := "/video_multichunk.bin"
+	// Generate 100 chunks of 1KB each (100KB total) to thoroughly exercise chunk appending
+	chunkSize := 1024
+	numChunks := 100
+	var fullContents []byte
+	for i := 0; i < numChunks; i++ {
+		chunk := bytes.Repeat([]byte{byte(i % 256)}, chunkSize)
+		fullContents = append(fullContents, chunk...)
+	}
+
+	expectedHash, err := Hash_bytes_sha256(fullContents)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	teardown, client, _ := setupTestCase(t)
+	defer teardown(t)
+
+	// Pre-check: file should be needed
+	input := []FileInfoTestData{
+		{filename: testFile, filehash: expectedHash, shouldsend: true},
+	}
+	checkFiles(t, client, input)
+
+	// Stream file across multiple chunks
+	stream, err := client.SendFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < numChunks; i++ {
+		chunk := fullContents[i*chunkSize : (i+1)*chunkSize]
+		if err := stream.Send(&pb.FileChunk{Path: testFile, Contents: chunk}); err != nil {
+			t.Fatalf("Failed to send chunk %d: %v", i, err)
+		}
+	}
+
+	fileReply, err := stream.CloseAndRecv()
+	if err != nil {
+		t.Fatalf("Failed CloseAndRecv: %v", err)
+	}
+	if fileReply.GetPath() != testFile {
+		t.Fatalf("Expected reply for %s, got %s", testFile, fileReply.GetPath())
+	}
+	if !fileReply.GetReceived() {
+		t.Fatalf("Expected fileReply.Received to be true")
+	}
+
+	// Post-check: file should now exist on server with matching hash, so shouldsend is false
+	input[0].shouldsend = false
+	checkFiles(t, client, input)
 }

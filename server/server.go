@@ -77,10 +77,20 @@ func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 
 func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 	filename := ""
-	first := true
+	var f *os.File
+	defer func() {
+		if f != nil {
+			f.Close()
+		}
+	}()
+
 	for {
 		file, err := stream.Recv()
 		if err == io.EOF {
+			if f != nil {
+				_ = f.Close()
+				f = nil
+			}
 			LogEvent(fmt.Sprintf("✅ Finished receiving %v", filename))
 			return stream.SendAndClose(&pb.FileReply{Path: filename, Received: true})
 		}
@@ -88,27 +98,21 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 			LogEvent(fmt.Sprintf("⚠️ Stream closed: %v", err))
 			return err
 		}
-		fileopenmask := os.O_WRONLY | os.O_CREATE
-		fullpathfile := filepath.Join(s.syncdir, filepath.FromSlash(file.GetPath()))
-		if first {
-			filename = file.GetPath()
-			LogEvent(fmt.Sprintf("📥 Receiving file: %v -> %v", filename, fullpathfile))
-			first = false
-			fileopenmask |= os.O_TRUNC
-		} else {
-			// only append on subsequent chunks
-			fileopenmask |= os.O_APPEND
-		}
-		if err = os.MkdirAll(filepath.Dir(fullpathfile), 0755); err != nil {
-			return err
-		}
 
-		// now append to the file
-		f, err := os.OpenFile(fullpathfile, fileopenmask, 0644)
-		if err != nil {
-			return err
+		if f == nil {
+			filename = file.GetPath()
+			fullpathfile := filepath.Join(s.syncdir, filepath.FromSlash(filename))
+			LogEvent(fmt.Sprintf("📥 Receiving file: %v -> %v", filename, fullpathfile))
+
+			if err = os.MkdirAll(filepath.Dir(fullpathfile), 0755); err != nil {
+				return err
+			}
+
+			f, err = os.OpenFile(fullpathfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+			if err != nil {
+				return err
+			}
 		}
-		defer f.Close()
 
 		if _, err = f.Write(file.GetContents()); err != nil {
 			return err
