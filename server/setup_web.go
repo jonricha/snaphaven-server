@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,8 +25,11 @@ type PairingPayload struct {
 }
 
 type PairRequest struct {
-	Token string `json:"token"`
-	CSR   string `json:"csr"`
+	Token         string `json:"token"`
+	CSR           string `json:"csr"`
+	DeviceName    string `json:"device_name,omitempty"`
+	DeviceModel   string `json:"device_model,omitempty"`
+	ClientVersion string `json:"client_version,omitempty"`
 }
 
 type PairResponse struct {
@@ -168,6 +172,7 @@ type SetupServer struct {
 	GRPCAddress   string
 	CAFingerprint string
 	CertManager   *CertManager
+	DeviceManager *DeviceManager
 	ConfigManager *ConfigManager
 	ServerManager *ServerManager
 	UpdateManager *UpdateManager
@@ -178,7 +183,7 @@ type SetupServer struct {
 	pairedDevices map[string]bool
 }
 
-func NewSetupServer(grpcAddr string, cm *CertManager, cfgMgr *ConfigManager, srvMgr *ServerManager, um *UpdateManager) (*SetupServer, error) {
+func NewSetupServer(grpcAddr string, cm *CertManager, dm *DeviceManager, cfgMgr *ConfigManager, srvMgr *ServerManager, um *UpdateManager) (*SetupServer, error) {
 	token, err := GenerateToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate pairing token: %w", err)
@@ -194,6 +199,7 @@ func NewSetupServer(grpcAddr string, cm *CertManager, cfgMgr *ConfigManager, srv
 		GRPCAddress:   grpcAddr,
 		CAFingerprint: cm.CAFingerprint,
 		CertManager:   cm,
+		DeviceManager: dm,
 		ConfigManager: cfgMgr,
 		ServerManager: srvMgr,
 		UpdateManager: um,
@@ -487,6 +493,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         </div>
         <div class="nav-links">
             <button id="btn-pairing" class="nav-btn active" onclick="showTab('pairing')">📱 Pairing QR Code</button>
+            <button id="btn-devices" class="nav-btn" onclick="showTab('devices')">📱 Paired Devices</button>
             <button id="btn-status" class="nav-btn" onclick="showTab('status')">📊 Server Status</button>
             <button id="btn-settings" class="nav-btn" onclick="showTab('settings')">⚙️ Settings</button>
             <button id="btn-logs" class="nav-btn" onclick="showTab('logs')">📋 Live Logs</button>
@@ -537,6 +544,42 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     </ul>
                 </div>
                 {{end}}
+            </div>
+        </div>
+
+        <!-- Devices Tab -->
+        <div id="devices" class="tab-content">
+            <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div>
+                        <h2 style="margin: 0;">Connected & Paired Devices</h2>
+                        <p style="color: var(--text-muted); margin: 4px 0 0 0; font-size: 0.9rem;">
+                            Manage mobile devices authorized to sync with this server via mutual TLS.
+                        </p>
+                    </div>
+                    <button class="btn" onclick="fetchDevices()" style="padding: 8px 14px; font-size: 0.85rem;">🔄 Refresh</button>
+                </div>
+
+                <div id="devicesLoading" style="text-align: center; padding: 30px; color: var(--text-muted);">Loading paired devices...</div>
+                <div id="devicesEmpty" style="display: none; text-align: center; padding: 30px; color: var(--text-muted);">
+                    <div style="font-size: 2rem; margin-bottom: 8px;">📱</div>
+                    No mobile devices have paired yet.<br>Scan the QR code under the <strong>Pairing QR Code</strong> tab using the SnapHaven Android app.
+                </div>
+
+                <div id="devicesTableContainer" style="display: none; overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                <th style="padding: 10px 12px;">Device</th>
+                                <th style="padding: 10px 12px;">Status</th>
+                                <th style="padding: 10px 12px;">Paired At</th>
+                                <th style="padding: 10px 12px;">Last Active</th>
+                                <th style="padding: 10px 12px; text-align: right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="devicesTableBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -829,6 +872,156 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             const navBtn = document.getElementById('btn-' + tabId);
             if (navBtn) navBtn.classList.add('active');
             window.location.hash = tabId;
+
+            if (tabId === 'devices') {
+                fetchDevices();
+            }
+        }
+
+        function formatRelativeTime(dateStr) {
+            if (!dateStr || dateStr.startsWith("0001")) return "Never";
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return "Never";
+            const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
+            if (diffSec < 60) return "Just now";
+            if (diffSec < 3600) return Math.floor(diffSec / 60) + "m ago";
+            if (diffSec < 86400) return Math.floor(diffSec / 3600) + "h ago";
+            return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function fetchDevices() {
+            const loading = document.getElementById("devicesLoading");
+            const empty = document.getElementById("devicesEmpty");
+            const table = document.getElementById("devicesTableContainer");
+            const tbody = document.getElementById("devicesTableBody");
+
+            fetch("/api/devices")
+                .then(r => r.json())
+                .then(devices => {
+                    loading.style.display = "none";
+                    if (!devices || devices.length === 0) {
+                        empty.style.display = "block";
+                        table.style.display = "none";
+                        return;
+                    }
+                    empty.style.display = "none";
+                    table.style.display = "block";
+                    tbody.innerHTML = "";
+
+                    devices.forEach(dev => {
+                        const tr = document.createElement("tr");
+                        tr.style.borderBottom = "1px solid var(--border-color)";
+
+                        const statusBadge = dev.revoked 
+                            ? '<span class="status-badge status-stopped" style="font-size: 0.75rem;">⛔ Revoked</span>'
+                            : '<span class="status-badge status-running" style="font-size: 0.75rem;">🟢 Active</span>';
+
+                        const modelSubtext = dev.device_model ? '<div style="font-size: 0.75rem; color: var(--text-muted);">' + escapeHtml(dev.device_model) + '</div>' : '';
+                        const serialShort = dev.serial_number ? dev.serial_number.substring(0, 12) + '...' : '';
+
+                        const actionBtn = dev.revoked
+                            ? '<button class="btn" style="padding: 6px 12px; font-size: 0.8rem; margin-right: 6px;" onclick="unrevokeDevice(\'' + escapeHtml(dev.serial_number) + '\')">🟢 Restore</button>'
+                            : '<button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem; margin-right: 6px;" onclick="revokeDevice(\'' + escapeHtml(dev.serial_number) + '\', \'' + escapeHtml(dev.name) + '\')">⛔ Revoke</button>';
+
+                        tr.innerHTML = 
+                            '<td style="padding: 12px;">' +
+                                '<div style="font-weight: 600; display: flex; align-items: center; gap: 6px;">' +
+                                    '<span>' + escapeHtml(dev.name || "Device") + '</span>' +
+                                    '<button title="Rename" style="background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.85rem;" onclick="renameDevice(\'' + escapeHtml(dev.serial_number) + '\', \'' + escapeHtml(dev.name) + '\')">✏️</button>' +
+                                '</div>' +
+                                modelSubtext +
+                                '<div style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">Cert ID: ' + escapeHtml(serialShort) + '</div>' +
+                            '</td>' +
+                            '<td style="padding: 12px;">' + statusBadge + '</td>' +
+                            '<td style="padding: 12px; font-size: 0.85rem; color: var(--text-muted);">' + formatRelativeTime(dev.paired_at) + '</td>' +
+                            '<td style="padding: 12px; font-size: 0.85rem; color: var(--text-muted);">' + formatRelativeTime(dev.last_seen_at) + '</td>' +
+                            '<td style="padding: 12px; text-align: right; white-space: nowrap;">' +
+                                actionBtn +
+                                '<button class="btn" style="background: rgba(255,255,255,0.08); padding: 6px 10px; font-size: 0.8rem;" onclick="deleteDevice(\'' + escapeHtml(dev.serial_number) + '\', \'' + escapeHtml(dev.name) + '\')">🗑️</button>' +
+                            '</td>';
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(err => {
+                    loading.innerText = "Failed to load devices: " + err;
+                });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return "";
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        function revokeDevice(serial, name) {
+            if (!confirm("Are you sure you want to revoke access for '" + name + "'?\n\nThis device will be disconnected immediately and prevented from syncing until restored.")) {
+                return;
+            }
+            fetch("/api/devices/revoke", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ serial_number: serial })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    fetchDevices();
+                } else {
+                    alert("Error: " + (data.error || "Failed to revoke"));
+                }
+            });
+        }
+
+        function unrevokeDevice(serial) {
+            fetch("/api/devices/unrevoke", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ serial_number: serial })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    fetchDevices();
+                } else {
+                    alert("Error: " + (data.error || "Failed to restore"));
+                }
+            });
+        }
+
+        function renameDevice(serial, currentName) {
+            const newName = prompt("Enter new friendly name for this device:", currentName);
+            if (!newName || newName.trim() === "" || newName === currentName) return;
+            fetch("/api/devices/rename", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ serial_number: serial, name: newName.trim() })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    fetchDevices();
+                } else {
+                    alert("Error: " + (data.error || "Failed to rename"));
+                }
+            });
+        }
+
+        function deleteDevice(serial, name) {
+            if (!confirm("Remove device record for '" + name + "' from the server?\n\nNote: If this device is still running and not revoked, it may reappear when it connects.")) {
+                return;
+            }
+            fetch("/api/devices/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ serial_number: serial })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    fetchDevices();
+                } else {
+                    alert("Error: " + (data.error || "Failed to delete"));
+                }
+            });
         }
 
         function handleHashRouting() {
@@ -1239,12 +1432,119 @@ func (s *SetupServer) Start() {
 			return
 		}
 
-		certBundle, err := s.CertManager.SignClientCSR([]byte(req.CSR))
+		certBundle, issuedCert, err := s.CertManager.SignClientCSR([]byte(req.CSR))
 		if err != nil {
 			json.NewEncoder(w).Encode(PairResponse{Success: false, Error: err.Error()})
 			return
 		}
+
+		if s.DeviceManager != nil && issuedCert != nil {
+			serialHex := NormalizeSerial(issuedCert.SerialNumber)
+			h := sha256.Sum256(issuedCert.Raw)
+			fp := hex.EncodeToString(h[:])
+			s.DeviceManager.RegisterDevice(serialHex, fp, req.DeviceName, req.DeviceModel)
+			LogEvent(fmt.Sprintf("📱 New device paired: %s (Model: %s, Serial: %s)", req.DeviceName, req.DeviceModel, serialHex))
+		}
+
 		json.NewEncoder(w).Encode(PairResponse{Success: true, Certificate: string(certBundle)})
+	})
+
+	// Device Management Endpoints
+	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if s.DeviceManager == nil {
+			json.NewEncoder(w).Encode([]interface{}{})
+			return
+		}
+		json.NewEncoder(w).Encode(s.DeviceManager.GetAllDevices())
+	})
+
+	mux.HandleFunc("/api/devices/revoke", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SerialNumber string `json:"serial_number"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SerialNumber == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid serial number"})
+			return
+		}
+		if s.DeviceManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Device manager unavailable"})
+			return
+		}
+		ok := s.DeviceManager.RevokeDevice(req.SerialNumber)
+		LogEvent(fmt.Sprintf("🚫 Revoked access for device certificate %s", req.SerialNumber))
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": ok})
+	})
+
+	mux.HandleFunc("/api/devices/unrevoke", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SerialNumber string `json:"serial_number"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SerialNumber == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid serial number"})
+			return
+		}
+		if s.DeviceManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Device manager unavailable"})
+			return
+		}
+		ok := s.DeviceManager.UnrevokeDevice(req.SerialNumber)
+		LogEvent(fmt.Sprintf("🟢 Restored access for device certificate %s", req.SerialNumber))
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": ok})
+	})
+
+	mux.HandleFunc("/api/devices/rename", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SerialNumber string `json:"serial_number"`
+			Name         string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SerialNumber == "" || req.Name == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+			return
+		}
+		if s.DeviceManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Device manager unavailable"})
+			return
+		}
+		ok := s.DeviceManager.RenameDevice(req.SerialNumber, req.Name)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": ok})
+	})
+
+	mux.HandleFunc("/api/devices/delete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SerialNumber string `json:"serial_number"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SerialNumber == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid serial number"})
+			return
+		}
+		if s.DeviceManager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Device manager unavailable"})
+			return
+		}
+		ok := s.DeviceManager.DeleteDevice(req.SerialNumber)
+		LogEvent(fmt.Sprintf("🗑️ Removed device record %s", req.SerialNumber))
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": ok})
 	})
 
 

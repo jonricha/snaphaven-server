@@ -40,7 +40,7 @@ func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, 
 	}
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
 
-	clientCertBundlePEM, err := cm.SignClientCSR(csrPEM)
+	clientCertBundlePEM, _, err := cm.SignClientCSR(csrPEM)
 	if err != nil {
 		t.Fatalf("failed to sign client CSR: %v", err)
 	}
@@ -97,7 +97,8 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, contex
 
 	port := ":0"
 	failurechannel := make(chan error, 1)
-	s, lis := RegisterServer(tempdir, port, cm)
+	dm, _ := NewDeviceManager(tempdir)
+	s, lis := RegisterServer(tempdir, port, cm, dm)
 	actualPort := fmt.Sprintf(":%d", lis.Addr().(*net.TCPAddr).Port)
 	go func() {
 		if err := s.Serve(lis); err != nil {

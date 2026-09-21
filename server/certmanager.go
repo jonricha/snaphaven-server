@@ -218,25 +218,25 @@ func (cm *CertManager) generateServerCert(certPath, keyPath string) error {
 	return pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
 }
 
-// SignClientCSR signs a client CSR using the CA certificate
-func (cm *CertManager) SignClientCSR(csrPEM []byte) ([]byte, error) {
+// SignClientCSR signs a client CSR using the CA certificate and returns the cert chain PEM and the issued certificate
+func (cm *CertManager) SignClientCSR(csrPEM []byte) ([]byte, *x509.Certificate, error) {
 	block, _ := pem.Decode(csrPEM)
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode CSR PEM")
+		return nil, nil, fmt.Errorf("failed to decode CSR PEM")
 	}
 
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("invalid CSR: %w", err)
+		return nil, nil, fmt.Errorf("invalid CSR: %w", err)
 	}
 
 	if err := csr.CheckSignature(); err != nil {
-		return nil, fmt.Errorf("CSR signature check failed: %w", err)
+		return nil, nil, fmt.Errorf("CSR signature check failed: %w", err)
 	}
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	clientTemplate := x509.Certificate{
@@ -250,7 +250,12 @@ func (cm *CertManager) SignClientCSR(csrPEM []byte) ([]byte, error) {
 
 	clientCertBytes, err := x509.CreateCertificate(rand.Reader, &clientTemplate, cm.CACert, csr.PublicKey, cm.CAPriv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign client cert: %w", err)
+		return nil, nil, fmt.Errorf("failed to sign client cert: %w", err)
+	}
+
+	issuedCert, err := x509.ParseCertificate(clientCertBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse issued client cert: %w", err)
 	}
 
 	clientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertBytes})
@@ -258,5 +263,5 @@ func (cm *CertManager) SignClientCSR(csrPEM []byte) ([]byte, error) {
 
 	// Append CA cert to client cert bundle
 	fullChain := append(clientCertPEM, caCertPEM...)
-	return fullChain, nil
+	return fullChain, issuedCert, nil
 }

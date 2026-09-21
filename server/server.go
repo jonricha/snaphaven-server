@@ -120,7 +120,7 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 	}
 }
 
-func RegisterServer(commonSyncDir string, port string, cm *CertManager) (*grpc.Server, net.Listener) {
+func RegisterServer(commonSyncDir string, port string, cm *CertManager, dm *DeviceManager) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -136,6 +136,23 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager) (*grpc.S
 		Certificates: []tls.Certificate{cm.ServerTLSCert},
 		ClientCAs:    certPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+				return fmt.Errorf("no verified client certificate chain")
+			}
+			peerCert := verifiedChains[0][0]
+			serialHex := NormalizeSerial(peerCert.SerialNumber)
+
+			if dm != nil {
+				if dm.IsRevoked(serialHex) {
+					LogEvent(fmt.Sprintf("⛔ Access rejected: Device certificate %s has been revoked", serialHex))
+					return fmt.Errorf("access revoked: device certificate %s is revoked by server", serialHex)
+				}
+				h := sha256.Sum256(peerCert.Raw)
+				dm.TouchOrAutoRegister(serialHex, hex.EncodeToString(h[:]))
+			}
+			return nil
+		},
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
@@ -214,18 +231,24 @@ func main() {
 		log.Fatalf("Failed to initialize CertManager: %v", err)
 	}
 
-	// 4. Create Server Manager & Start gRPC Server
-	srvMgr := NewServerManager(configMgr, certMgr)
+	// 4. Initialize Device Manager
+	deviceMgr, err := NewDeviceManager(filepath.Dir(configPath))
+	if err != nil {
+		log.Printf("Notice: Failed to initialize DeviceManager: %v", err)
+	}
+
+	// 5. Create Server Manager & Start gRPC Server
+	srvMgr := NewServerManager(configMgr, certMgr, deviceMgr)
 	if err := srvMgr.Start(); err != nil {
 		log.Printf("Warning: Failed to auto-start gRPC server: %v", err)
 	}
 
-	// 5. Initialize Update Manager & Start Auto-Check Ticker
+	// 6. Initialize Update Manager & Start Auto-Check Ticker
 	updaterMgr := NewUpdateManager("", "")
 	updaterMgr.StartAutoCheckTicker(DefaultCheckInterval)
 
-	// 6. Initialize Web Setup & Dashboard Server
-	setupServer, err := NewSetupServer(configMgr.Config.GRPCPort, certMgr, configMgr, srvMgr, updaterMgr)
+	// 7. Initialize Web Setup & Dashboard Server
+	setupServer, err := NewSetupServer(configMgr.Config.GRPCPort, certMgr, deviceMgr, configMgr, srvMgr, updaterMgr)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize setup web server: %v", err)
 	} else {
@@ -233,7 +256,7 @@ func main() {
 		setupServer.Start()
 	}
 
-	// 7. Launch System Tray Interface (runs event loop on main thread)
+	// 8. Launch System Tray Interface (runs event loop on main thread)
 	tray := NewTrayApp(srvMgr, setupServer, updaterMgr)
 	tray.Run()
 }

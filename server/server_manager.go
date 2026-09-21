@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"log"
@@ -17,16 +19,18 @@ type ServerManager struct {
 	mu           sync.Mutex
 	configMgr    *ConfigManager
 	certMgr      *CertManager
+	deviceMgr    *DeviceManager
 	grpcServer   *grpc.Server
 	grpcListener net.Listener
 	setupServer  *SetupServer
 	isRunning    bool
 }
 
-func NewServerManager(cm *ConfigManager, certMgr *CertManager) *ServerManager {
+func NewServerManager(cm *ConfigManager, certMgr *CertManager, devMgr *DeviceManager) *ServerManager {
 	return &ServerManager{
 		configMgr: cm,
 		certMgr:   certMgr,
+		deviceMgr: devMgr,
 	}
 }
 
@@ -57,6 +61,24 @@ func (sm *ServerManager) Start() error {
 		Certificates: []tls.Certificate{sm.certMgr.ServerTLSCert},
 		ClientCAs:    certPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+				return fmt.Errorf("no verified client certificate chain")
+			}
+			peerCert := verifiedChains[0][0]
+			serialHex := NormalizeSerial(peerCert.SerialNumber)
+
+			if sm.deviceMgr != nil {
+				if sm.deviceMgr.IsRevoked(serialHex) {
+					LogEvent(fmt.Sprintf("⛔ Access rejected: Device certificate %s has been revoked", serialHex))
+					return fmt.Errorf("access revoked: device certificate %s is revoked by server", serialHex)
+				}
+				// Auto-register legacy paired clients or update last seen timestamp
+				h := sha256.Sum256(peerCert.Raw)
+				sm.deviceMgr.TouchOrAutoRegister(serialHex, hex.EncodeToString(h[:]))
+			}
+			return nil
+		},
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
