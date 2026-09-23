@@ -1552,6 +1552,12 @@ func (s *SetupServer) Start() {
 
 	go func() {
 		log.Printf("Setup Web Interface running at: %s", s.ServerURL)
+
+		// Persist active URL to file for CLI and single-instance detection
+		if urlFile := GetActiveURLFilePath(); urlFile != "" {
+			_ = os.WriteFile(urlFile, []byte(s.ServerURL), 0644)
+		}
+
 		if s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage() {
 			OpenBrowser(s.ServerURL)
 		}

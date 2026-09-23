@@ -173,7 +173,18 @@ func main() {
 		}
 	}
 
-	// 1. Initialize Log Hub & Streamer
+	// 1. Ensure only one instance of SnapHaven Server runs at a time
+	_, isSingle := EnsureSingleInstance()
+	if !isSingle {
+		// When a duplicate instance is triggered (e.g. clicking Open in App Store / Start Menu),
+		// launch or show the active server's web dashboard in the browser, then cleanly exit.
+		if url := FindActiveSetupURL(); url != "" {
+			OpenBrowser(url)
+		}
+		os.Exit(0)
+	}
+
+	// 2. Initialize Log Hub & Streamer
 	configPath, _ := GetDefaultConfigPath()
 	logFilePath := filepath.Join(filepath.Dir(configPath), "snaphaven.log")
 	InitLogHub(logFilePath)
@@ -181,13 +192,6 @@ func main() {
 	log.Printf("==================================================")
 	log.Printf("🚀 Starting SnapHaven Server Application %s...", GetFormattedVersion())
 	log.Printf("==================================================")
-
-	// Ensure only one instance of SnapHaven Server runs at a time
-	_, isSingle := EnsureSingleInstance()
-	if !isSingle {
-		log.Printf("⚠️ Another instance of SnapHaven Server is already running. Exiting duplicate process.")
-		os.Exit(0)
-	}
 
 	// 2. Load / Create Configuration
 	configMgr, err := NewConfigManager("")

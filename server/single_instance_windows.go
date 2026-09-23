@@ -16,6 +16,8 @@ var (
 
 const ERROR_ALREADY_EXISTS = 183
 
+var singleInstanceMutexHandle uintptr
+
 func EnsureSingleInstance() (uintptr, bool) {
 	mutexName, err := syscall.UTF16PtrFromString("Local\\SnapHavenServerSingleInstanceMutex")
 	if err != nil {
@@ -29,5 +31,7 @@ func EnsureSingleInstance() (uintptr, bool) {
 		log.Println("⚠️ Another instance of SnapHaven Server is already running.")
 		return ret, false
 	}
+	singleInstanceMutexHandle = ret
 	return ret, true
 }
+

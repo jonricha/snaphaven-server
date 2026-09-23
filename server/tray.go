@@ -141,6 +141,9 @@ func (t *TrayApp) onReady() {
 }
 
 func (t *TrayApp) onExit() {
+	if urlFile := GetActiveURLFilePath(); urlFile != "" {
+		_ = os.Remove(urlFile)
+	}
 	t.serverMgr.Stop()
 	log.Printf("SnapHaven Server safely exited.")
 	os.Exit(0)

@@ -41,8 +41,26 @@ func HandleCLICommand(cmd string) {
 	}
 }
 
+func GetActiveURLFilePath() string {
+	configPath, err := GetDefaultConfigPath()
+	if err == nil {
+		return filepath.Join(filepath.Dir(configPath), "snaphaven.url")
+	}
+	return ""
+}
+
 func FindActiveSetupURL() string {
-	// 1. Try querying systemd journalctl logs (Linux)
+	// 1. Check for persisted active URL file
+	if urlFile := GetActiveURLFilePath(); urlFile != "" {
+		if data, err := os.ReadFile(urlFile); err == nil {
+			u := strings.TrimSpace(string(data))
+			if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+				return u
+			}
+		}
+	}
+
+	// 2. Try querying systemd journalctl logs (Linux)
 	if runtime.GOOS == "linux" {
 		out, err := exec.Command("journalctl", "-u", "snaphaven-server", "-n", "100", "--no-pager").Output()
 		if err == nil {
@@ -52,7 +70,7 @@ func FindActiveSetupURL() string {
 		}
 	}
 
-	// 2. Try reading default log file path
+	// 3. Try reading default log file path
 	configPath, err := GetDefaultConfigPath()
 	if err == nil {
 		logFilePath := filepath.Join(filepath.Dir(configPath), "snaphaven.log")
@@ -63,7 +81,7 @@ func FindActiveSetupURL() string {
 		}
 	}
 
-	// 3. Fallback check for /tmp/snaphaven.log
+	// 4. Fallback check for /tmp/snaphaven.log
 	if data, err := os.ReadFile("/tmp/snaphaven.log"); err == nil {
 		if u := extractURLFromLog(string(data)); u != "" {
 			return u
