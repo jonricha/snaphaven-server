@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 
 	pb "github.com/jonricha/snaphaven-server/snaphaven"
@@ -79,6 +80,11 @@ func startClient(t *testing.T, port string, cm *CertManager) (*grpc.ClientConn, 
 }
 
 func setupTestCase(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, context.Context) {
+	teardown, client, ctx, _ := setupTestCaseWithDir(t)
+	return teardown, client, ctx
+}
+
+func setupTestCaseWithDir(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, context.Context, string) {
 	t.Log("setupTestCase >>")
 	tempdir, err := ioutil.TempDir("", "filesyncserver")
 	if err != nil {
@@ -126,7 +132,7 @@ func setupTestCase(t *testing.T) (func(t *testing.T), pb.SnapHavenClient, contex
 		os.RemoveAll(tempdir)
 		os.RemoveAll(certdir)
 		t.Log("teardown <<")
-	}, client, ctx
+	}, client, ctx, tempdir
 }
 
 type FileInfoTestData struct {
@@ -305,4 +311,224 @@ func TestSendFilesMultiChunk(t *testing.T) {
 	// Post-check: file should now exist on server with matching hash, so shouldsend is false
 	input[0].shouldsend = false
 	checkFiles(t, client, input)
+}
+
+func TestRemoteVault_ListAndDownload(t *testing.T) {
+	teardown, client, _, serverDir := setupTestCaseWithDir(t)
+	defer teardown(t)
+
+	// Create test file structure in serverDir under "phone" prefix
+	phoneDir := filepath.Join(serverDir, "phone", "Camera")
+	if err := os.MkdirAll(phoneDir, 0755); err != nil {
+		t.Fatalf("Failed to create test dir: %v", err)
+	}
+
+	testData := []byte("high-res photo content for testing")
+	testFilePath := filepath.Join(phoneDir, "IMG_2026.jpg")
+	if err := os.WriteFile(testFilePath, testData, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// 1. Test ListRemoteFiles
+	listReply, err := client.ListRemoteFiles(context.Background(), &pb.ListFilesRequest{
+		Prefix:    "phone",
+		Folder:    "",
+		Recursive: true,
+	})
+	if err != nil {
+		t.Fatalf("ListRemoteFiles failed: %v", err)
+	}
+	if len(listReply.GetFiles()) != 1 {
+		t.Fatalf("Expected 1 remote file, got %d", len(listReply.GetFiles()))
+	}
+	item := listReply.GetFiles()[0]
+	if item.GetFilename() != "IMG_2026.jpg" {
+		t.Errorf("Expected filename IMG_2026.jpg, got %s", item.GetFilename())
+	}
+	if item.GetSize() != int64(len(testData)) {
+		t.Errorf("Expected size %d, got %d", len(testData), item.GetSize())
+	}
+	if item.GetIsVideo() {
+		t.Errorf("Expected isVideo false for jpg")
+	}
+
+	// 2. Test DownloadFile
+	downloadStream, err := client.DownloadFile(context.Background(), &pb.DownloadFileRequest{
+		Path: "phone/Camera/IMG_2026.jpg",
+	})
+	if err != nil {
+		t.Fatalf("DownloadFile failed: %v", err)
+	}
+
+	var downloaded bytes.Buffer
+	for {
+		chunk, err := downloadStream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Download stream error: %v", err)
+		}
+		downloaded.Write(chunk.GetContents())
+	}
+
+	if !bytes.Equal(downloaded.Bytes(), testData) {
+		t.Errorf("Downloaded content mismatch")
+	}
+}
+
+func TestRemoteVault_Thumbnails(t *testing.T) {
+	teardown, client, _ := setupTestCase(t)
+	defer teardown(t)
+
+	thumbData := []byte("fake_webp_bytes")
+	path := "phone/Camera/IMG_TEST.jpg"
+	sha := "abcdef123456"
+
+	// 1. Upload thumbnail
+	upReply, err := client.UploadThumbnail(context.Background(), &pb.UploadThumbnailRequest{
+		Path:     path,
+		Sha256:   sha,
+		Data:     thumbData,
+		MimeType: "image/webp",
+	})
+	if err != nil {
+		t.Fatalf("UploadThumbnail failed: %v", err)
+	}
+	if !upReply.GetSuccess() {
+		t.Errorf("Expected UploadThumbnail success")
+	}
+
+	// 2. Get thumbnail
+	getReply, err := client.GetThumbnail(context.Background(), &pb.ThumbnailRequest{
+		Path:   path,
+		Sha256: sha,
+	})
+	if err != nil {
+		t.Fatalf("GetThumbnail failed: %v", err)
+	}
+	if !getReply.GetFound() {
+		t.Errorf("Expected thumbnail found")
+	}
+	if !bytes.Equal(getReply.GetData(), thumbData) {
+		t.Errorf("Thumbnail data mismatch")
+	}
+}
+
+func TestRemoteVault_StreamMedia(t *testing.T) {
+	teardown, client, _, serverDir := setupTestCaseWithDir(t)
+	defer teardown(t)
+
+	// Create test video file
+	videoDir := filepath.Join(serverDir, "phone", "Camera")
+	_ = os.MkdirAll(videoDir, 0755)
+	dummyVideo := make([]byte, 1024*1024) // 1MB
+	for i := range dummyVideo {
+		dummyVideo[i] = byte(i % 256)
+	}
+	videoPath := filepath.Join(videoDir, "test_video.mp4")
+	_ = os.WriteFile(videoPath, dummyVideo, 0644)
+
+	// Request range from 500,000 for 100,000 bytes
+	rangeReq := &pb.MediaRangeRequest{
+		Path:      "phone/Camera/test_video.mp4",
+		StartByte: 500000,
+		Length:    100000,
+	}
+
+	stream, err := client.StreamMedia(context.Background(), rangeReq)
+	if err != nil {
+		t.Fatalf("StreamMedia failed: %v", err)
+	}
+
+	var streamed bytes.Buffer
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("StreamMedia recv error: %v", err)
+		}
+		if chunk.GetTotalSize() != int64(len(dummyVideo)) {
+			t.Errorf("Expected total size %d, got %d", len(dummyVideo), chunk.GetTotalSize())
+		}
+		streamed.Write(chunk.GetData())
+	}
+
+	expectedRange := dummyVideo[500000 : 500000+100000]
+	if !bytes.Equal(streamed.Bytes(), expectedRange) {
+		t.Errorf("Streamed byte range mismatch")
+	}
+}
+
+func TestRemoteVault_VerifyFiles(t *testing.T) {
+	teardown, client, _, serverDir := setupTestCaseWithDir(t)
+	defer teardown(t)
+
+	fileDir := filepath.Join(serverDir, "phone", "Camera")
+	_ = os.MkdirAll(fileDir, 0755)
+	fileData := []byte("verification test file data")
+	filePath := filepath.Join(fileDir, "verify_me.jpg")
+	_ = os.WriteFile(filePath, fileData, 0644)
+	h, _ := Hash_bytes_sha256(fileData)
+
+	verifyReq := &pb.VerifyFilesRequest{
+		Items: []*pb.VerifyItem{
+			{Path: "phone/Camera/verify_me.jpg", Size: int64(len(fileData)), Sha256: h},
+			{Path: "phone/Camera/non_existent.jpg", Size: 1234, Sha256: "fake"},
+		},
+	}
+
+	reply, err := client.VerifyFiles(context.Background(), verifyReq)
+	if err != nil {
+		t.Fatalf("VerifyFiles failed: %v", err)
+	}
+	if len(reply.GetResults()) != 2 {
+		t.Fatalf("Expected 2 results, got %d", len(reply.GetResults()))
+	}
+
+	r0 := reply.GetResults()[0]
+	if !r0.GetExists() || !r0.GetSizeMatches() || !r0.GetHashMatches() {
+		t.Errorf("Expected r0 all true, got exists=%v, size=%v, hash=%v", r0.GetExists(), r0.GetSizeMatches(), r0.GetHashMatches())
+	}
+
+	r1 := reply.GetResults()[1]
+	if r1.GetExists() {
+		t.Errorf("Expected r1 exists=false for non-existent file")
+	}
+}
+
+func TestBackwardCompatiblePathResolution(t *testing.T) {
+	teardown, client, _, serverDir := setupTestCaseWithDir(t)
+	defer teardown(t)
+
+	// File exists at legacy path "phone/Camera/legacy.jpg" (no DCIM)
+	cameraDir := filepath.Join(serverDir, "phone", "Camera")
+	_ = os.MkdirAll(cameraDir, 0755)
+	fileData := []byte("legacy photo content")
+	_ = os.WriteFile(filepath.Join(cameraDir, "legacy.jpg"), fileData, 0644)
+	h, _ := Hash_bytes_sha256(fileData)
+
+	// Check with new path "phone/DCIM/Camera/legacy.jpg" -> should recognize it via shouldSend fallback!
+	stream, err := client.SendFileInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := stream.Send(&pb.FileInfoRequest{
+		Path: "phone/DCIM/Camera/legacy.jpg",
+		Hash: h,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = stream.CloseSend()
+
+	reply, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.GetShouldsend() {
+		t.Errorf("Expected shouldSend=false via backward-compatibility DCIM fallback!")
+	}
 }

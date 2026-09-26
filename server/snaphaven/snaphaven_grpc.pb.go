@@ -25,6 +25,15 @@ type SnapHavenClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingReply, error)
 	SendFileInfo(ctx context.Context, opts ...grpc.CallOption) (SnapHaven_SendFileInfoClient, error)
 	SendFiles(ctx context.Context, opts ...grpc.CallOption) (SnapHaven_SendFilesClient, error)
+	// Remote PC Vault & Catalog
+	ListRemoteFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesReply, error)
+	GetThumbnail(ctx context.Context, in *ThumbnailRequest, opts ...grpc.CallOption) (*ThumbnailReply, error)
+	UploadThumbnail(ctx context.Context, in *UploadThumbnailRequest, opts ...grpc.CallOption) (*UploadThumbnailReply, error)
+	// Video Streaming & On-Demand Download
+	StreamMedia(ctx context.Context, in *MediaRangeRequest, opts ...grpc.CallOption) (SnapHaven_StreamMediaClient, error)
+	DownloadFile(ctx context.Context, in *DownloadFileRequest, opts ...grpc.CallOption) (SnapHaven_DownloadFileClient, error)
+	// Storage Cleaner Live Safety Verification
+	VerifyFiles(ctx context.Context, in *VerifyFilesRequest, opts ...grpc.CallOption) (*VerifyFilesReply, error)
 }
 
 type snapHavenClient struct {
@@ -109,6 +118,106 @@ func (x *snapHavenSendFilesClient) CloseAndRecv() (*FileReply, error) {
 	return m, nil
 }
 
+func (c *snapHavenClient) ListRemoteFiles(ctx context.Context, in *ListFilesRequest, opts ...grpc.CallOption) (*ListFilesReply, error) {
+	out := new(ListFilesReply)
+	err := c.cc.Invoke(ctx, "/snaphaven.SnapHaven/ListRemoteFiles", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *snapHavenClient) GetThumbnail(ctx context.Context, in *ThumbnailRequest, opts ...grpc.CallOption) (*ThumbnailReply, error) {
+	out := new(ThumbnailReply)
+	err := c.cc.Invoke(ctx, "/snaphaven.SnapHaven/GetThumbnail", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *snapHavenClient) UploadThumbnail(ctx context.Context, in *UploadThumbnailRequest, opts ...grpc.CallOption) (*UploadThumbnailReply, error) {
+	out := new(UploadThumbnailReply)
+	err := c.cc.Invoke(ctx, "/snaphaven.SnapHaven/UploadThumbnail", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *snapHavenClient) StreamMedia(ctx context.Context, in *MediaRangeRequest, opts ...grpc.CallOption) (SnapHaven_StreamMediaClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SnapHaven_ServiceDesc.Streams[2], "/snaphaven.SnapHaven/StreamMedia", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &snapHavenStreamMediaClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type SnapHaven_StreamMediaClient interface {
+	Recv() (*MediaChunk, error)
+	grpc.ClientStream
+}
+
+type snapHavenStreamMediaClient struct {
+	grpc.ClientStream
+}
+
+func (x *snapHavenStreamMediaClient) Recv() (*MediaChunk, error) {
+	m := new(MediaChunk)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *snapHavenClient) DownloadFile(ctx context.Context, in *DownloadFileRequest, opts ...grpc.CallOption) (SnapHaven_DownloadFileClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SnapHaven_ServiceDesc.Streams[3], "/snaphaven.SnapHaven/DownloadFile", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &snapHavenDownloadFileClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type SnapHaven_DownloadFileClient interface {
+	Recv() (*FileChunk, error)
+	grpc.ClientStream
+}
+
+type snapHavenDownloadFileClient struct {
+	grpc.ClientStream
+}
+
+func (x *snapHavenDownloadFileClient) Recv() (*FileChunk, error) {
+	m := new(FileChunk)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *snapHavenClient) VerifyFiles(ctx context.Context, in *VerifyFilesRequest, opts ...grpc.CallOption) (*VerifyFilesReply, error) {
+	out := new(VerifyFilesReply)
+	err := c.cc.Invoke(ctx, "/snaphaven.SnapHaven/VerifyFiles", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SnapHavenServer is the server API for SnapHaven service.
 // All implementations must embed UnimplementedSnapHavenServer
 // for forward compatibility
@@ -116,6 +225,15 @@ type SnapHavenServer interface {
 	Ping(context.Context, *PingRequest) (*PingReply, error)
 	SendFileInfo(SnapHaven_SendFileInfoServer) error
 	SendFiles(SnapHaven_SendFilesServer) error
+	// Remote PC Vault & Catalog
+	ListRemoteFiles(context.Context, *ListFilesRequest) (*ListFilesReply, error)
+	GetThumbnail(context.Context, *ThumbnailRequest) (*ThumbnailReply, error)
+	UploadThumbnail(context.Context, *UploadThumbnailRequest) (*UploadThumbnailReply, error)
+	// Video Streaming & On-Demand Download
+	StreamMedia(*MediaRangeRequest, SnapHaven_StreamMediaServer) error
+	DownloadFile(*DownloadFileRequest, SnapHaven_DownloadFileServer) error
+	// Storage Cleaner Live Safety Verification
+	VerifyFiles(context.Context, *VerifyFilesRequest) (*VerifyFilesReply, error)
 	mustEmbedUnimplementedSnapHavenServer()
 }
 
@@ -131,6 +249,24 @@ func (UnimplementedSnapHavenServer) SendFileInfo(SnapHaven_SendFileInfoServer) e
 }
 func (UnimplementedSnapHavenServer) SendFiles(SnapHaven_SendFilesServer) error {
 	return status.Errorf(codes.Unimplemented, "method SendFiles not implemented")
+}
+func (UnimplementedSnapHavenServer) ListRemoteFiles(context.Context, *ListFilesRequest) (*ListFilesReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRemoteFiles not implemented")
+}
+func (UnimplementedSnapHavenServer) GetThumbnail(context.Context, *ThumbnailRequest) (*ThumbnailReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetThumbnail not implemented")
+}
+func (UnimplementedSnapHavenServer) UploadThumbnail(context.Context, *UploadThumbnailRequest) (*UploadThumbnailReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UploadThumbnail not implemented")
+}
+func (UnimplementedSnapHavenServer) StreamMedia(*MediaRangeRequest, SnapHaven_StreamMediaServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamMedia not implemented")
+}
+func (UnimplementedSnapHavenServer) DownloadFile(*DownloadFileRequest, SnapHaven_DownloadFileServer) error {
+	return status.Errorf(codes.Unimplemented, "method DownloadFile not implemented")
+}
+func (UnimplementedSnapHavenServer) VerifyFiles(context.Context, *VerifyFilesRequest) (*VerifyFilesReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyFiles not implemented")
 }
 func (UnimplementedSnapHavenServer) mustEmbedUnimplementedSnapHavenServer() {}
 
@@ -215,6 +351,120 @@ func (x *snapHavenSendFilesServer) Recv() (*FileChunk, error) {
 	return m, nil
 }
 
+func _SnapHaven_ListRemoteFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SnapHavenServer).ListRemoteFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/snaphaven.SnapHaven/ListRemoteFiles",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SnapHavenServer).ListRemoteFiles(ctx, req.(*ListFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SnapHaven_GetThumbnail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ThumbnailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SnapHavenServer).GetThumbnail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/snaphaven.SnapHaven/GetThumbnail",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SnapHavenServer).GetThumbnail(ctx, req.(*ThumbnailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SnapHaven_UploadThumbnail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadThumbnailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SnapHavenServer).UploadThumbnail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/snaphaven.SnapHaven/UploadThumbnail",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SnapHavenServer).UploadThumbnail(ctx, req.(*UploadThumbnailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SnapHaven_StreamMedia_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(MediaRangeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SnapHavenServer).StreamMedia(m, &snapHavenStreamMediaServer{stream})
+}
+
+type SnapHaven_StreamMediaServer interface {
+	Send(*MediaChunk) error
+	grpc.ServerStream
+}
+
+type snapHavenStreamMediaServer struct {
+	grpc.ServerStream
+}
+
+func (x *snapHavenStreamMediaServer) Send(m *MediaChunk) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _SnapHaven_DownloadFile_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DownloadFileRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SnapHavenServer).DownloadFile(m, &snapHavenDownloadFileServer{stream})
+}
+
+type SnapHaven_DownloadFileServer interface {
+	Send(*FileChunk) error
+	grpc.ServerStream
+}
+
+type snapHavenDownloadFileServer struct {
+	grpc.ServerStream
+}
+
+func (x *snapHavenDownloadFileServer) Send(m *FileChunk) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _SnapHaven_VerifyFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SnapHavenServer).VerifyFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/snaphaven.SnapHaven/VerifyFiles",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SnapHavenServer).VerifyFiles(ctx, req.(*VerifyFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SnapHaven_ServiceDesc is the grpc.ServiceDesc for SnapHaven service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -225,6 +475,22 @@ var SnapHaven_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Ping",
 			Handler:    _SnapHaven_Ping_Handler,
+		},
+		{
+			MethodName: "ListRemoteFiles",
+			Handler:    _SnapHaven_ListRemoteFiles_Handler,
+		},
+		{
+			MethodName: "GetThumbnail",
+			Handler:    _SnapHaven_GetThumbnail_Handler,
+		},
+		{
+			MethodName: "UploadThumbnail",
+			Handler:    _SnapHaven_UploadThumbnail_Handler,
+		},
+		{
+			MethodName: "VerifyFiles",
+			Handler:    _SnapHaven_VerifyFiles_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
@@ -238,6 +504,16 @@ var SnapHaven_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "SendFiles",
 			Handler:       _SnapHaven_SendFiles_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamMedia",
+			Handler:       _SnapHaven_StreamMedia_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "DownloadFile",
+			Handler:       _SnapHaven_DownloadFile_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "snaphaven/snaphaven.proto",

@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 option go_package = "/snaphaven";
-option java_package = "com.snaphaven.app";
+option java_package = "app.snaphaven";
 
 package snaphaven;
 
@@ -9,6 +9,18 @@ service SnapHaven {
     rpc Ping (PingRequest) returns (PingReply) {}
     rpc SendFileInfo (stream FileInfoRequest) returns (stream FileInfoReply) {}
     rpc SendFiles (stream FileChunk) returns (FileReply) {}
+
+    // Remote PC Vault & Catalog
+    rpc ListRemoteFiles (ListFilesRequest) returns (ListFilesReply) {}
+    rpc GetThumbnail (ThumbnailRequest) returns (ThumbnailReply) {}
+    rpc UploadThumbnail (UploadThumbnailRequest) returns (UploadThumbnailReply) {}
+
+    // Video Streaming & On-Demand Download
+    rpc StreamMedia (MediaRangeRequest) returns (stream MediaChunk) {}
+    rpc DownloadFile (DownloadFileRequest) returns (stream FileChunk) {}
+
+    // Storage Cleaner Live Safety Verification
+    rpc VerifyFiles (VerifyFilesRequest) returns (VerifyFilesReply) {}
 }
 
 message PingRequest {
@@ -39,4 +51,94 @@ message FileChunk {
 message FileReply {
     string path = 1;
     bool received = 2;
+}
+
+// --- Remote Vault & Catalog Messages ---
+
+message ListFilesRequest {
+    string prefix = 1;
+    string folder = 2;
+    bool recursive = 3;
+}
+
+message RemoteFileItem {
+    string path = 1;
+    string filename = 2;
+    int64 size = 3;
+    int64 mod_time_ms = 4;
+    bool is_video = 5;
+    string sha256 = 6;
+    bool has_thumbnail = 7;
+    string folder = 8;
+}
+
+message ListFilesReply {
+    repeated RemoteFileItem files = 1;
+    repeated string folders = 2;
+}
+
+message ThumbnailRequest {
+    string path = 1;
+    string sha256 = 2;
+}
+
+message ThumbnailReply {
+    string path = 1;
+    bytes data = 2;
+    string mime_type = 3;
+    bool found = 4;
+}
+
+message UploadThumbnailRequest {
+    string path = 1;
+    string sha256 = 2;
+    bytes data = 3;
+    string mime_type = 4;
+}
+
+message UploadThumbnailReply {
+    bool success = 1;
+}
+
+// --- Video Streaming Messages ---
+
+message MediaRangeRequest {
+    string path = 1;
+    int64 start_byte = 2;
+    int64 length = 3;
+}
+
+message MediaChunk {
+    int64 offset = 1;
+    bytes data = 2;
+    int64 total_size = 3;
+}
+
+// --- On-Demand Download Messages ---
+
+message DownloadFileRequest {
+    string path = 1;
+}
+
+// --- Storage Cleaner Verification Messages ---
+
+message VerifyItem {
+    string path = 1;
+    int64 size = 2;
+    string sha256 = 3;
+}
+
+message VerifyFilesRequest {
+    repeated VerifyItem items = 1;
+}
+
+message VerifiedResult {
+    string path = 1;
+    bool exists = 2;
+    bool size_matches = 3;
+    bool hash_matches = 4;
+}
+
+message VerifyFilesReply {
+    repeated VerifiedResult results = 1;
 }

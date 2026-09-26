@@ -24,7 +24,20 @@ import (
 
 type server struct {
 	pb.UnimplementedSnapHavenServer
-	syncdir string
+	syncdir  string
+	thumbMgr *ThumbnailManager
+}
+
+func (s *server) getThumbManager() *ThumbnailManager {
+	if s.thumbMgr != nil {
+		return s.thumbMgr
+	}
+	configPath, _ := GetDefaultConfigPath()
+	tm, err := NewThumbnailManager(filepath.Dir(configPath))
+	if err == nil {
+		s.thumbMgr = tm
+	}
+	return s.thumbMgr
 }
 
 func Hash_file_sha256(filePath string) (string, error) {
@@ -50,12 +63,34 @@ func (s *server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingReply, 
 }
 
 func (s *server) shouldSend(path string, remotehash string) bool {
-	hash, err := Hash_file_sha256(filepath.Join(s.syncdir, filepath.FromSlash(path)))
-	if err != nil || remotehash != hash {
-		return true
+	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(path))
+	hash, err := Hash_file_sha256(fullPath)
+	if err == nil && remotehash == hash {
+		return false
 	}
-	// hash is the same, so we don't need to send
-	return false
+
+	// Backward-compatibility path resolution:
+	// If path has DCIM, check without DCIM; if path doesn't have DCIM, check with DCIM.
+	cleanRel := filepath.ToSlash(filepath.Clean(path))
+	parts := strings.Split(cleanRel, "/")
+	if len(parts) >= 3 && parts[1] == "DCIM" {
+		// e.g. "phone/DCIM/Camera/IMG.jpg" -> "phone/Camera/IMG.jpg"
+		legacyPath := filepath.Join(s.syncdir, parts[0], filepath.Join(parts[2:]...))
+		legacyHash, err := Hash_file_sha256(legacyPath)
+		if err == nil && remotehash == legacyHash {
+			return false
+		}
+	} else if len(parts) >= 2 && parts[1] != "DCIM" {
+		// e.g. "phone/Camera/IMG.jpg" -> "phone/DCIM/Camera/IMG.jpg"
+		dcimPath := filepath.Join(s.syncdir, parts[0], "DCIM", filepath.Join(parts[1:]...))
+		dcimHash, err := Hash_file_sha256(dcimPath)
+		if err == nil && remotehash == dcimHash {
+			return false
+		}
+	}
+
+	// hash is different or file missing, so we need to send
+	return true
 }
 
 func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
@@ -118,6 +153,317 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 			return err
 		}
 	}
+}
+
+func isSafePath(baseDir, targetPath string) bool {
+	rel, err := filepath.Rel(baseDir, targetPath)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..") && rel != "."
+}
+
+func isVideoExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".3gp", ".ts":
+		return true
+	}
+	return false
+}
+
+func isMediaExtension(ext string) bool {
+	if isVideoExtension(ext) {
+		return true
+	}
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".dng", ".bmp":
+		return true
+	}
+	return false
+}
+
+func (s *server) ListRemoteFiles(ctx context.Context, req *pb.ListFilesRequest) (*pb.ListFilesReply, error) {
+	prefix := req.GetPrefix()
+	baseDir := s.syncdir
+	if prefix != "" {
+		baseDir = filepath.Join(s.syncdir, filepath.FromSlash(prefix))
+	}
+
+	targetDir := baseDir
+	if req.GetFolder() != "" {
+		targetDir = filepath.Join(baseDir, filepath.FromSlash(req.GetFolder()))
+	}
+
+	if fi, err := os.Stat(targetDir); err != nil || !fi.IsDir() {
+		return &pb.ListFilesReply{Files: nil, Folders: nil}, nil
+	}
+
+	var files []*pb.RemoteFileItem
+	foldersMap := make(map[string]bool)
+	tm := s.getThumbManager()
+
+	err := filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if path != targetDir && !req.GetRecursive() && req.GetFolder() != "" {
+				return filepath.SkipDir
+			}
+			if path != baseDir {
+				relFolder, err := filepath.Rel(baseDir, path)
+				if err == nil && relFolder != "." {
+					foldersMap[filepath.ToSlash(relFolder)] = true
+				}
+			}
+			return nil
+		}
+
+		ext := filepath.Ext(info.Name())
+		if !isMediaExtension(ext) {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			relPath = info.Name()
+		}
+
+		parentFolder := filepath.Base(filepath.Dir(path))
+		if parentFolder == "." || parentFolder == filepath.Base(baseDir) {
+			parentFolder = ""
+		}
+
+		hasThumb := false
+		if tm != nil {
+			hasThumb = tm.HasThumbnail(tm.GetCacheKey(path, ""))
+		}
+
+		files = append(files, &pb.RemoteFileItem{
+			Path:         filepath.ToSlash(relPath),
+			Filename:     info.Name(),
+			Size:         info.Size(),
+			ModTimeMs:    info.ModTime().UnixMilli(),
+			IsVideo:      isVideoExtension(ext),
+			HasThumbnail: hasThumb,
+			Folder:       parentFolder,
+		})
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	var folders []string
+	for f := range foldersMap {
+		folders = append(folders, f)
+	}
+
+	return &pb.ListFilesReply{
+		Files:   files,
+		Folders: folders,
+	}, nil
+}
+
+func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*pb.ThumbnailReply, error) {
+	tm := s.getThumbManager()
+	if tm == nil {
+		return &pb.ThumbnailReply{Found: false}, nil
+	}
+
+	key := tm.GetCacheKey(req.GetPath(), req.GetSha256())
+	if data, mime, ok := tm.GetThumbnail(key); ok {
+		return &pb.ThumbnailReply{
+			Path:     req.GetPath(),
+			Data:     data,
+			MimeType: mime,
+			Found:    true,
+		}, nil
+	}
+
+	// Try generating for local image if file exists
+	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(req.GetPath()))
+	if data, mime, err := tm.EnsureThumbnail(fullPath, req.GetSha256(), 300); err == nil {
+		return &pb.ThumbnailReply{
+			Path:     req.GetPath(),
+			Data:     data,
+			MimeType: mime,
+			Found:    true,
+		}, nil
+	}
+
+	return &pb.ThumbnailReply{Path: req.GetPath(), Found: false}, nil
+}
+
+func (s *server) UploadThumbnail(ctx context.Context, req *pb.UploadThumbnailRequest) (*pb.UploadThumbnailReply, error) {
+	tm := s.getThumbManager()
+	if tm == nil {
+		return &pb.UploadThumbnailReply{Success: false}, nil
+	}
+
+	key := tm.GetCacheKey(req.GetPath(), req.GetSha256())
+	err := tm.SaveThumbnail(key, req.GetData(), req.GetMimeType())
+	return &pb.UploadThumbnailReply{Success: err == nil}, err
+}
+
+func (s *server) StreamMedia(req *pb.MediaRangeRequest, stream pb.SnapHaven_StreamMediaServer) error {
+	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(req.GetPath()))
+	if !isSafePath(s.syncdir, fullPath) {
+		return fmt.Errorf("invalid or unauthorized file path")
+	}
+
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return fmt.Errorf("failed to open media file: %w", err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+
+	totalSize := fi.Size()
+	start := req.GetStartByte()
+	if start < 0 || start >= totalSize {
+		return nil
+	}
+
+	length := req.GetLength()
+	if length <= 0 || start+length > totalSize {
+		length = totalSize - start
+	}
+
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek: %w", err)
+	}
+
+	const chunkSize = 512 * 1024 // 512KB chunks for smooth streaming
+	buf := make([]byte, chunkSize)
+	remaining := length
+	currentOffset := start
+
+	for remaining > 0 {
+		toRead := int64(chunkSize)
+		if remaining < toRead {
+			toRead = remaining
+		}
+
+		n, err := io.ReadFull(f, buf[:toRead])
+		if n > 0 {
+			if sendErr := stream.Send(&pb.MediaChunk{
+				Offset:    currentOffset,
+				Data:      buf[:n],
+				TotalSize: totalSize,
+			}); sendErr != nil {
+				return sendErr
+			}
+			currentOffset += int64(n)
+			remaining -= int64(n)
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *server) DownloadFile(req *pb.DownloadFileRequest, stream pb.SnapHaven_DownloadFileServer) error {
+	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(req.GetPath()))
+	if !isSafePath(s.syncdir, fullPath) {
+		return fmt.Errorf("invalid or unauthorized file path")
+	}
+
+	f, err := os.Open(fullPath)
+	if err != nil {
+		return fmt.Errorf("failed to open file for download: %w", err)
+	}
+	defer f.Close()
+
+	const chunkSize = 64 * 1024 // 64KB chunks
+	buf := make([]byte, chunkSize)
+
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			if sendErr := stream.Send(&pb.FileChunk{
+				Path:     req.GetPath(),
+				Contents: buf[:n],
+			}); sendErr != nil {
+				return sendErr
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *server) VerifyFiles(ctx context.Context, req *pb.VerifyFilesRequest) (*pb.VerifyFilesReply, error) {
+	var results []*pb.VerifiedResult
+
+	for _, item := range req.GetItems() {
+		fullPath := filepath.Join(s.syncdir, filepath.FromSlash(item.GetPath()))
+		fi, err := os.Stat(fullPath)
+
+		// If not found, check backward-compatibility alternate path (DCIM vs non-DCIM)
+		if err != nil {
+			cleanRel := filepath.ToSlash(filepath.Clean(item.GetPath()))
+			parts := strings.Split(cleanRel, "/")
+			if len(parts) >= 3 && parts[1] == "DCIM" {
+				legacyPath := filepath.Join(s.syncdir, parts[0], filepath.Join(parts[2:]...))
+				fi, err = os.Stat(legacyPath)
+				if err == nil {
+					fullPath = legacyPath
+				}
+			} else if len(parts) >= 2 && parts[1] != "DCIM" {
+				dcimPath := filepath.Join(s.syncdir, parts[0], "DCIM", filepath.Join(parts[1:]...))
+				fi, err = os.Stat(dcimPath)
+				if err == nil {
+					fullPath = dcimPath
+				}
+			}
+		}
+
+		if err != nil || fi.IsDir() {
+			results = append(results, &pb.VerifiedResult{
+				Path:        item.GetPath(),
+				Exists:      false,
+				SizeMatches: false,
+				HashMatches: false,
+			})
+			continue
+		}
+
+		sizeMatches := (fi.Size() == item.GetSize())
+		hashMatches := false
+		if sizeMatches && item.GetSha256() != "" {
+			h, err := Hash_file_sha256(fullPath)
+			if err == nil && h == item.GetSha256() {
+				hashMatches = true
+			}
+		} else if sizeMatches {
+			hashMatches = true
+		}
+
+		results = append(results, &pb.VerifiedResult{
+			Path:        item.GetPath(),
+			Exists:      true,
+			SizeMatches: sizeMatches,
+			HashMatches: hashMatches,
+		})
+	}
+
+	return &pb.VerifyFilesReply{Results: results}, nil
 }
 
 func RegisterServer(commonSyncDir string, port string, cm *CertManager, dm *DeviceManager) (*grpc.Server, net.Listener) {
