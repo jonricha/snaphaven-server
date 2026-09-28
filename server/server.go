@@ -94,6 +94,7 @@ func (s *server) shouldSend(path string, remotehash string) bool {
 }
 
 func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
+	tm := s.getThumbManager()
 	for {
 		fileinfo, err := stream.Recv()
 		if err == io.EOF {
@@ -104,7 +105,30 @@ func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 		}
 		shouldSend := s.shouldSend(fileinfo.GetPath(), fileinfo.GetHash())
 		LogEvent(fmt.Sprintf("🔍 Checking %v (shouldSend: %v)", fileinfo.GetPath(), shouldSend))
-		if err := stream.Send(&pb.FileInfoReply{Path: fileinfo.GetPath(), Hash: fileinfo.GetHash(), Shouldsend: shouldSend}); err != nil {
+
+		needThumb := false
+		if tm != nil {
+			cleanPath := strings.TrimPrefix(filepath.FromSlash(fileinfo.GetPath()), string(filepath.Separator))
+			fullPath := filepath.Join(s.syncdir, cleanPath)
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				parts := strings.Split(cleanPath, string(filepath.Separator))
+				if len(parts) > 1 {
+					altPath := filepath.Join(s.syncdir, filepath.Join(parts[1:]...))
+					if fi, err := os.Stat(altPath); err == nil && !fi.IsDir() {
+						fullPath = altPath
+					}
+				}
+			}
+			key := tm.GetCacheKey(fullPath, fileinfo.GetHash())
+			needThumb = !tm.HasThumbnail(key)
+		}
+
+		if err := stream.Send(&pb.FileInfoReply{
+			Path:          fileinfo.GetPath(),
+			Hash:          fileinfo.GetHash(),
+			Shouldsend:    shouldSend,
+			NeedThumbnail: needThumb,
+		}); err != nil {
 			return err
 		}
 	}
@@ -272,8 +296,27 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 		return &pb.ThumbnailReply{Found: false}, nil
 	}
 
-	key := tm.GetCacheKey(req.GetPath(), req.GetSha256())
+	cleanPath := strings.TrimPrefix(filepath.FromSlash(req.GetPath()), string(filepath.Separator))
+	fullPath := filepath.Join(s.syncdir, cleanPath)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		// Try matching under any top-level device folder (e.g. s.syncdir/*/<cleanPath>)
+		matches, _ := filepath.Glob(filepath.Join(s.syncdir, "*", cleanPath))
+		if len(matches) > 0 {
+			fullPath = matches[0]
+		} else {
+			parts := strings.Split(cleanPath, string(filepath.Separator))
+			if len(parts) > 1 {
+				altPath := filepath.Join(s.syncdir, filepath.Join(parts[1:]...))
+				if fi, err := os.Stat(altPath); err == nil && !fi.IsDir() {
+					fullPath = altPath
+				}
+			}
+		}
+	}
+
+	key := tm.GetCacheKey(fullPath, req.GetSha256())
 	if data, mime, ok := tm.GetThumbnail(key); ok {
+		LogEvent(fmt.Sprintf("🖼️ Served cached thumbnail: %v", req.GetPath()))
 		return &pb.ThumbnailReply{
 			Path:     req.GetPath(),
 			Data:     data,
@@ -282,9 +325,10 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 		}, nil
 	}
 
-	// Try generating for local image if file exists
-	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(req.GetPath()))
-	if data, mime, err := tm.EnsureThumbnail(fullPath, req.GetSha256(), 300); err == nil {
+	// Also check fallback key by cleanPath
+	altKey := tm.GetCacheKey(cleanPath, req.GetSha256())
+	if data, mime, ok := tm.GetThumbnail(altKey); ok {
+		LogEvent(fmt.Sprintf("🖼️ Served cached thumbnail by relPath: %v", req.GetPath()))
 		return &pb.ThumbnailReply{
 			Path:     req.GetPath(),
 			Data:     data,
@@ -293,6 +337,7 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 		}, nil
 	}
 
+	LogEvent(fmt.Sprintf("⚠️ Thumbnail not found: %v (tried key: %v, fullPath: %v)", req.GetPath(), key, fullPath))
 	return &pb.ThumbnailReply{Path: req.GetPath(), Found: false}, nil
 }
 
@@ -302,8 +347,15 @@ func (s *server) UploadThumbnail(ctx context.Context, req *pb.UploadThumbnailReq
 		return &pb.UploadThumbnailReply{Success: false}, nil
 	}
 
-	key := tm.GetCacheKey(req.GetPath(), req.GetSha256())
+	cleanPath := strings.TrimPrefix(filepath.FromSlash(req.GetPath()), string(filepath.Separator))
+	fullPath := filepath.Join(s.syncdir, cleanPath)
+	key := tm.GetCacheKey(fullPath, req.GetSha256())
 	err := tm.SaveThumbnail(key, req.GetData(), req.GetMimeType())
+	if err == nil {
+		LogEvent(fmt.Sprintf("📥 Saved uploaded thumbnail for %v (key: %v)", req.GetPath(), key))
+	} else {
+		LogEvent(fmt.Sprintf("⚠️ Failed to save thumbnail for %v: %v", req.GetPath(), err))
+	}
 	return &pb.UploadThumbnailReply{Success: err == nil}, err
 }
 
