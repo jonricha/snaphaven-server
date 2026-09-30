@@ -119,8 +119,7 @@ func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 					}
 				}
 			}
-			key := tm.GetCacheKey(fullPath, fileinfo.GetHash())
-			needThumb = !tm.HasThumbnail(key)
+			needThumb = !tm.HasThumbnailForFile(fullPath, cleanPath, fileinfo.GetHash())
 		}
 
 		if err := stream.Send(&pb.FileInfoReply{
@@ -260,7 +259,13 @@ func (s *server) ListRemoteFiles(ctx context.Context, req *pb.ListFilesRequest) 
 
 		hasThumb := false
 		if tm != nil {
-			hasThumb = tm.HasThumbnail(tm.GetCacheKey(path, ""))
+			hasThumb = tm.HasThumbnailForFile(path, relPath, "")
+			if !hasThumb {
+				switch strings.ToLower(ext) {
+				case ".jpg", ".jpeg", ".png", ".gif":
+					hasThumb = true
+				}
+			}
 		}
 
 		files = append(files, &pb.RemoteFileItem{
@@ -314,8 +319,7 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 		}
 	}
 
-	key := tm.GetCacheKey(fullPath, req.GetSha256())
-	if data, mime, ok := tm.GetThumbnail(key); ok {
+	if data, mime, ok := tm.GetThumbnailForFile(fullPath, cleanPath, req.GetSha256()); ok {
 		LogEvent(fmt.Sprintf("🖼️ Served cached thumbnail: %v", req.GetPath()))
 		return &pb.ThumbnailReply{
 			Path:     req.GetPath(),
@@ -325,10 +329,9 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 		}, nil
 	}
 
-	// Also check fallback key by cleanPath
-	altKey := tm.GetCacheKey(cleanPath, req.GetSha256())
-	if data, mime, ok := tm.GetThumbnail(altKey); ok {
-		LogEvent(fmt.Sprintf("🖼️ Served cached thumbnail by relPath: %v", req.GetPath()))
+	// Fallback: Generate thumbnail on-the-fly from local image if present
+	if data, mime, ok := tm.GenerateLocalThumbnail(fullPath); ok {
+		LogEvent(fmt.Sprintf("⚡ Generated local thumbnail on-the-fly: %v", req.GetPath()))
 		return &pb.ThumbnailReply{
 			Path:     req.GetPath(),
 			Data:     data,
@@ -336,8 +339,19 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 			Found:    true,
 		}, nil
 	}
+	if alt := GetAltDCIMPath(fullPath); alt != "" {
+		if data, mime, ok := tm.GenerateLocalThumbnail(alt); ok {
+			LogEvent(fmt.Sprintf("⚡ Generated local thumbnail via alt DCIM path: %v", req.GetPath()))
+			return &pb.ThumbnailReply{
+				Path:     req.GetPath(),
+				Data:     data,
+				MimeType: mime,
+				Found:    true,
+			}, nil
+		}
+	}
 
-	LogEvent(fmt.Sprintf("⚠️ Thumbnail not found: %v (tried key: %v, fullPath: %v)", req.GetPath(), key, fullPath))
+	LogEvent(fmt.Sprintf("⚠️ Thumbnail not found: %v (fullPath: %v)", req.GetPath(), fullPath))
 	return &pb.ThumbnailReply{Path: req.GetPath(), Found: false}, nil
 }
 
@@ -349,10 +363,19 @@ func (s *server) UploadThumbnail(ctx context.Context, req *pb.UploadThumbnailReq
 
 	cleanPath := strings.TrimPrefix(filepath.FromSlash(req.GetPath()), string(filepath.Separator))
 	fullPath := filepath.Join(s.syncdir, cleanPath)
-	key := tm.GetCacheKey(fullPath, req.GetSha256())
-	err := tm.SaveThumbnail(key, req.GetData(), req.GetMimeType())
+
+	primaryKey := tm.GetCacheKey(fullPath, "")
+	var altKey, shaKey string
+	if req.GetSha256() != "" {
+		shaKey = req.GetSha256()
+	}
+	if alt := GetAltDCIMPath(fullPath); alt != "" {
+		altKey = tm.GetCacheKey(alt, "")
+	}
+
+	err := tm.SaveThumbnailWithKeys(req.GetData(), req.GetMimeType(), primaryKey, shaKey, altKey)
 	if err == nil {
-		LogEvent(fmt.Sprintf("📥 Saved uploaded thumbnail for %v (key: %v)", req.GetPath(), key))
+		LogEvent(fmt.Sprintf("📥 Saved uploaded thumbnail for %v (key: %v)", req.GetPath(), primaryKey))
 	} else {
 		LogEvent(fmt.Sprintf("⚠️ Failed to save thumbnail for %v: %v", req.GetPath(), err))
 	}
