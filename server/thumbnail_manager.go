@@ -43,28 +43,33 @@ func (tm *ThumbnailManager) GetCacheKey(path string, fileHash string) string {
 }
 
 // GetAltDCIMPath returns an alternative path toggling DCIM folder (e.g. phone/DCIM/Camera <-> phone/Camera).
+// Handles both forward and backward slashes uniformly across OS platforms.
 func GetAltDCIMPath(path string) string {
 	if path == "" {
 		return ""
 	}
-	clean := filepath.Clean(path)
-	slash := filepath.ToSlash(clean)
+	hasBackslash := strings.Contains(path, "\\")
+	slash := strings.ReplaceAll(path, "\\", "/")
 
+	var alt string
 	if strings.Contains(slash, "/DCIM/") {
-		alt := strings.Replace(slash, "/DCIM/", "/", 1)
-		return filepath.FromSlash(alt)
+		alt = strings.Replace(slash, "/DCIM/", "/", 1)
 	} else if strings.HasPrefix(slash, "DCIM/") {
-		return filepath.FromSlash(strings.TrimPrefix(slash, "DCIM/"))
-	}
-
-	if strings.Contains(slash, "/Camera/") {
-		alt := strings.Replace(slash, "/Camera/", "/DCIM/Camera/", 1)
-		return filepath.FromSlash(alt)
+		alt = strings.TrimPrefix(slash, "DCIM/")
+	} else if strings.Contains(slash, "/Camera/") {
+		alt = strings.Replace(slash, "/Camera/", "/DCIM/Camera/", 1)
 	} else if strings.HasPrefix(slash, "Camera/") {
-		return filepath.FromSlash("DCIM/" + slash)
+		alt = "DCIM/" + slash
 	}
 
-	return ""
+	if alt == "" {
+		return ""
+	}
+
+	if hasBackslash {
+		return strings.ReplaceAll(alt, "/", "\\")
+	}
+	return alt
 }
 
 // GetThumbnail returns cached thumbnail bytes if present.

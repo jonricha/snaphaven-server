@@ -86,12 +86,18 @@ func TestGetAltDCIMPath(t *testing.T) {
 		{"phone/Camera/IMG.jpg", "phone/DCIM/Camera/IMG.jpg"},
 		{"DCIM/Camera/IMG.jpg", "Camera/IMG.jpg"},
 		{"Camera/IMG.jpg", "DCIM/Camera/IMG.jpg"},
+		{"phone\\DCIM\\Camera\\IMG.jpg", "phone\\Camera\\IMG.jpg"},
+		{"phone\\Camera\\IMG.jpg", "phone\\DCIM\\Camera\\IMG.jpg"},
+		{"/home/user/vault/DCIM/Camera/photo.jpg", "/home/user/vault/Camera/photo.jpg"},
+		{"/home/user/vault/Camera/photo.jpg", "/home/user/vault/DCIM/Camera/photo.jpg"},
 		{"C:/Users/snaphaven/jon/DCIM/Camera/photo.jpg", "C:/Users/snaphaven/jon/Camera/photo.jpg"},
 		{"C:/Users/snaphaven/jon/Camera/photo.jpg", "C:/Users/snaphaven/jon/DCIM/Camera/photo.jpg"},
+		{"C:\\Users\\snaphaven\\jon\\DCIM\\Camera\\photo.jpg", "C:\\Users\\snaphaven\\jon\\Camera\\photo.jpg"},
+		{"C:\\Users\\snaphaven\\jon\\Camera\\photo.jpg", "C:\\Users\\snaphaven\\jon\\DCIM\\Camera\\photo.jpg"},
 	}
 
 	for _, c := range cases {
-		got := filepath.ToSlash(GetAltDCIMPath(c.input))
+		got := GetAltDCIMPath(c.input)
 		if got != c.expected {
 			t.Errorf("GetAltDCIMPath(%q) = %q; expected %q", c.input, got, c.expected)
 		}
@@ -110,7 +116,7 @@ func TestThumbnailManager_DCIMAndHashLookup(t *testing.T) {
 		t.Fatalf("Failed to create thumbnail manager: %v", err)
 	}
 
-	fullPath := "C:\\Users\\snaphaven\\jon\\Camera\\IMG_100.jpg"
+	fullPath := filepath.Join(tempDir, "Camera", "IMG_100.jpg")
 	sha := "hash_abc_123"
 	thumbData := []byte("thumbnail_data_123")
 	mime := "image/jpeg"
@@ -128,18 +134,20 @@ func TestThumbnailManager_DCIMAndHashLookup(t *testing.T) {
 	}
 
 	// 2. Should be found by exact path
-	if !tm.HasThumbnailForFile(fullPath, "jon\\Camera\\IMG_100.jpg", "") {
+	cleanRel := filepath.Join("Camera", "IMG_100.jpg")
+	if !tm.HasThumbnailForFile(fullPath, cleanRel, "") {
 		t.Errorf("Expected HasThumbnailForFile true by exact path")
 	}
 
 	// 3. Should be found by DCIM alternative path!
-	dcimPath := "C:\\Users\\snaphaven\\jon\\DCIM\\Camera\\IMG_100.jpg"
-	if !tm.HasThumbnailForFile(dcimPath, "jon\\DCIM\\Camera\\IMG_100.jpg", "") {
+	dcimPath := filepath.Join(tempDir, "DCIM", "Camera", "IMG_100.jpg")
+	dcimRel := filepath.Join("DCIM", "Camera", "IMG_100.jpg")
+	if !tm.HasThumbnailForFile(dcimPath, dcimRel, "") {
 		t.Errorf("Expected HasThumbnailForFile true by DCIM alternative path")
 	}
 
 	// 4. Retrieve by DCIM alternative path
-	data, _, ok := tm.GetThumbnailForFile(dcimPath, "jon\\DCIM\\Camera\\IMG_100.jpg", "")
+	data, _, ok := tm.GetThumbnailForFile(dcimPath, dcimRel, "")
 	if !ok || !bytes.Equal(data, thumbData) {
 		t.Errorf("GetThumbnailForFile by DCIM path failed")
 	}
