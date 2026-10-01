@@ -242,6 +242,78 @@ func TestSendFilesWithDir(t *testing.T) {
 	checkFiles(t, client, input)
 }
 
+func TestSendFilesPreservesModTime(t *testing.T) {
+	testfile := "/preserved_time.jpg"
+	testcontents := "Preserve my timestamp please!"
+	// Target timestamp: 2021-05-15 14:30:00 UTC (1621089000000 ms)
+	targetModTimeMs := int64(1621089000000)
+
+	teardown, client, _, dir := setupTestCaseWithDir(t)
+	defer teardown(t)
+
+	stream, err := client.SendFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = stream.Send(&pb.FileChunk{
+		Path:      testfile,
+		Contents:  []byte(testcontents),
+		ModTimeMs: targetModTimeMs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filereply, err := stream.CloseAndRecv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filereply.GetPath() != testfile {
+		t.Fatalf("Expected reply %s, got %s", testfile, filereply.GetPath())
+	}
+
+	// Verify the file's modtime on disk matches the sent modtime
+	savedFilePath := filepath.Join(dir, filepath.FromSlash(testfile))
+	fi, err := os.Stat(savedFilePath)
+	if err != nil {
+		t.Fatalf("Failed to stat saved file: %v", err)
+	}
+
+	actualModTimeMs := fi.ModTime().UnixMilli()
+	// Allow slight filesystem tolerance (up to 2 seconds for FAT/Windows filesystems)
+	diff := actualModTimeMs - targetModTimeMs
+	if diff < -2000 || diff > 2000 {
+		t.Fatalf("Expected mod time ~%d, got %d (diff: %d ms)", targetModTimeMs, actualModTimeMs, diff)
+	}
+
+	// Test backward compatibility: old client sends chunk without ModTimeMs (0)
+	testOldClientFile := "/old_client.jpg"
+	stream2, err := client.SendFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = stream2.Send(&pb.FileChunk{
+		Path:     testOldClientFile,
+		Contents: []byte(testcontents),
+		// ModTimeMs omitted -> 0
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filereply2, err := stream2.CloseAndRecv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filereply2.GetPath() != testOldClientFile {
+		t.Fatalf("Expected reply %s, got %s", testOldClientFile, filereply2.GetPath())
+	}
+	oldSavedPath := filepath.Join(dir, filepath.FromSlash(testOldClientFile))
+	if _, err := os.Stat(oldSavedPath); err != nil {
+		t.Fatalf("Old client file was not saved: %v", err)
+	}
+}
+
 func TestPing(t *testing.T) {
 	teardown, client, _ := setupTestCase(t)
 	defer teardown(t)

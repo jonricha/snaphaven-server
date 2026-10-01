@@ -47,6 +47,7 @@ message FileInfoReply {
 message FileChunk {
     string path = 1;
     bytes contents = 2;
+    int64 mod_time_ms = 3;
 }
 
 message FileReply {

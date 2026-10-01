@@ -135,6 +135,8 @@ func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 
 func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 	filename := ""
+	fullpathfile := ""
+	var modTimeMs int64
 	var f *os.File
 	defer func() {
 		if f != nil {
@@ -148,6 +150,10 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 			if f != nil {
 				_ = f.Close()
 				f = nil
+				if modTimeMs > 0 && fullpathfile != "" {
+					t := time.UnixMilli(modTimeMs)
+					_ = os.Chtimes(fullpathfile, t, t)
+				}
 			}
 			LogEvent(fmt.Sprintf("✅ Finished receiving %v", filename))
 			return stream.SendAndClose(&pb.FileReply{Path: filename, Received: true})
@@ -157,9 +163,13 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 			return err
 		}
 
+		if file.GetModTimeMs() > 0 {
+			modTimeMs = file.GetModTimeMs()
+		}
+
 		if f == nil {
 			filename = file.GetPath()
-			fullpathfile := filepath.Join(s.syncdir, filepath.FromSlash(filename))
+			fullpathfile = filepath.Join(s.syncdir, filepath.FromSlash(filename))
 			LogEvent(fmt.Sprintf("📥 Receiving file: %v -> %v", filename, fullpathfile))
 
 			if err = os.MkdirAll(filepath.Dir(fullpathfile), 0755); err != nil {
@@ -463,12 +473,18 @@ func (s *server) DownloadFile(req *pb.DownloadFileRequest, stream pb.SnapHaven_D
 	const chunkSize = 64 * 1024 // 64KB chunks
 	buf := make([]byte, chunkSize)
 
+	var modTimeMs int64
+	if fi, statErr := f.Stat(); statErr == nil {
+		modTimeMs = fi.ModTime().UnixMilli()
+	}
+
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
 			if sendErr := stream.Send(&pb.FileChunk{
-				Path:     req.GetPath(),
-				Contents: buf[:n],
+				Path:      req.GetPath(),
+				Contents:  buf[:n],
+				ModTimeMs: modTimeMs,
 			}); sendErr != nil {
 				return sendErr
 			}
