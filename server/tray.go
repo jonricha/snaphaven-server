@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/energye/systray"
 )
@@ -30,6 +31,9 @@ func (t *TrayApp) Run() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Notice: System tray unavailable (%v). Running as background daemon.", r)
+			if t.setupServer != nil {
+				PrintTerminalQRCode(t.setupServer.GetPairingJSON(), t.setupServer.ServerURL, t.setupServer.CAFingerprint)
+			}
 			select {}
 		}
 	}()
@@ -143,8 +147,10 @@ func (t *TrayApp) onReady() {
 func (t *TrayApp) onExit() {
 	if urlFile := GetActiveURLFilePath(); urlFile != "" {
 		_ = os.Remove(urlFile)
+		qrFile := filepath.Join(filepath.Dir(urlFile), "snaphaven.qr")
+		_ = os.Remove(qrFile)
 	}
-	t.serverMgr.Stop()
+	t.serverMgr.Shutdown()
 	log.Printf("SnapHaven Server safely exited.")
 	os.Exit(0)
 }

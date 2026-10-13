@@ -14,8 +14,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -637,10 +639,20 @@ func main() {
 	}
 
 	var syncDirFlag, portFlag, certDirFlag string
+	var headlessFlag bool
 	flag.StringVar(&syncDirFlag, "dir", "", "Directory to sync files to")
 	flag.StringVar(&portFlag, "port", "", "Port to use (default is :50005)")
 	flag.StringVar(&certDirFlag, "certdir", "", "Directory storing certificates and CA")
+	flag.BoolVar(&headlessFlag, "headless", false, "Run in headless mode without system tray")
 	flag.Parse()
+
+	// Environment variable overrides (useful for Docker & NAS deployments)
+	if envDir := os.Getenv("SNAP_DIR"); envDir != "" && syncDirFlag == "" {
+		syncDirFlag = envDir
+	}
+	if envPort := os.Getenv("SNAP_PORT"); envPort != "" && portFlag == "" {
+		portFlag = envPort
+	}
 
 	if syncDirFlag != "" {
 		configMgr.Config.SyncDirectory = syncDirFlag
@@ -663,7 +675,7 @@ func main() {
 	}
 
 	log.Printf("📁 Sync Target Directory: %v", configMgr.Config.SyncDirectory)
-	log.Printf("🔌 gRPC Port: %v", configMgr.Config.GRPCPort)
+	log.Printf("🔌 Preferred Port: %v", configMgr.Config.GRPCPort)
 	log.Printf("🏷️ Server Version: %v", GetFormattedVersion())
 
 	// 3. Initialize Certificate Manager
@@ -678,23 +690,37 @@ func main() {
 		log.Printf("Notice: Failed to initialize DeviceManager: %v", err)
 	}
 
-	// 5. Create Server Manager & Start gRPC Server
+	// 5. Create Server Manager & Start Unified Multiplexed Server
 	srvMgr := NewServerManager(configMgr, certMgr, deviceMgr)
 	if err := srvMgr.Start(); err != nil {
-		log.Printf("Warning: Failed to auto-start gRPC server: %v", err)
+		log.Fatalf("Fatal: Failed to start SnapHaven server: %v", err)
 	}
 
 	// 6. Initialize Update Manager & Start Auto-Check Ticker
 	updaterMgr := NewUpdateManager("", "")
 	updaterMgr.StartAutoCheckTicker(DefaultCheckInterval)
 
-	// 7. Initialize Web Setup & Dashboard Server
-	setupServer, err := NewSetupServer(configMgr.Config.GRPCPort, certMgr, deviceMgr, configMgr, srvMgr, updaterMgr)
+	// 7. Initialize Web Setup & Dashboard Server on the multiplexed HTTP listener
+	setupServer, err := NewSetupServer(srvMgr.HTTPListener(), srvMgr.BoundPort(), certMgr, deviceMgr, configMgr, srvMgr, updaterMgr)
 	if err != nil {
 		log.Printf("Warning: Failed to initialize setup web server: %v", err)
 	} else {
 		srvMgr.AttachSetupServer(setupServer)
 		setupServer.Start()
+	}
+
+	isHeadless := headlessFlag || os.Getenv("HEADLESS") == "true" || os.Getenv("SNAP_HEADLESS") == "true"
+	if isHeadless {
+		log.Printf("🛡️ Running in Headless / NAS mode.")
+		PrintTerminalQRCode(setupServer.GetPairingJSON(), setupServer.ServerURL, certMgr.CAFingerprint)
+
+		// Wait for SIGINT or SIGTERM for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		log.Printf("Received termination signal, shutting down gracefully...")
+		srvMgr.Shutdown()
+		os.Exit(0)
 	}
 
 	// 8. Launch System Tray Interface (runs event loop on main thread)

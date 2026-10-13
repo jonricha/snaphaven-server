@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  snaphaven:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: snaphaven/server:latest
+    container_name: snaphaven-server
+    restart: unless-stopped
+    # Use single port mapping for both Web Dashboard and mTLS gRPC
+    ports:
+      - "50005:50005"
+    environment:
+      - HEADLESS=true
+      - SNAP_DIR=/photos
+      - SNAP_PORT=:50005
+    volumes:
+      # Map your host or NAS photo directory here:
+      - ./storage/photos:/photos
+      # Map persistent configuration and certificates:
+      - ./storage/config:/config

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -178,25 +179,30 @@ type SetupServer struct {
 	UpdateManager *UpdateManager
 	HTTPListener  net.Listener
 	ServerURL     string
+	UnifiedPort   int
 
 	mu            sync.Mutex
 	pairedDevices map[string]bool
 }
 
-func NewSetupServer(grpcAddr string, cm *CertManager, dm *DeviceManager, cfgMgr *ConfigManager, srvMgr *ServerManager, um *UpdateManager) (*SetupServer, error) {
+func NewSetupServer(listener net.Listener, boundPort int, cm *CertManager, dm *DeviceManager, cfgMgr *ConfigManager, srvMgr *ServerManager, um *UpdateManager) (*SetupServer, error) {
 	token, err := GenerateToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate pairing token: %w", err)
 	}
 
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to start web setup listener: %w", err)
+	if listener == nil {
+		var err error
+		listener, err = net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			return nil, fmt.Errorf("failed to start web setup listener: %w", err)
+		}
+		boundPort = listener.Addr().(*net.TCPAddr).Port
 	}
 
 	s := &SetupServer{
 		PairingToken:  token,
-		GRPCAddress:   grpcAddr,
+		GRPCAddress:   fmt.Sprintf(":%d", boundPort),
 		CAFingerprint: cm.CAFingerprint,
 		CertManager:   cm,
 		DeviceManager: dm,
@@ -204,18 +210,52 @@ func NewSetupServer(grpcAddr string, cm *CertManager, dm *DeviceManager, cfgMgr 
 		ServerManager: srvMgr,
 		UpdateManager: um,
 		HTTPListener:  listener,
+		UnifiedPort:   boundPort,
 		pairedDevices: make(map[string]bool),
 	}
 
-	port := listener.Addr().(*net.TCPAddr).Port
 	localIPs := GetLocalIPs()
 	hostIP := "localhost"
 	if len(localIPs) > 0 {
 		hostIP = localIPs[0]
 	}
-	s.ServerURL = fmt.Sprintf("http://%s:%d", hostIP, port)
+	s.ServerURL = fmt.Sprintf("http://%s:%d", hostIP, boundPort)
 
 	return s, nil
+}
+
+func (s *SetupServer) GetPairingJSON() string {
+	localIPs := GetLocalIPs()
+	ip := "127.0.0.1"
+	if len(localIPs) > 0 {
+		ip = localIPs[0]
+	}
+
+	payload := struct {
+		IP            string   `json:"ip"`
+		IPs           []string `json:"ips"`
+		Port          int      `json:"port"`
+		SetupPort     int      `json:"sport"`
+		Token         string   `json:"token"`
+		CAFingerprint string   `json:"fp"`
+		ServerID      string   `json:"server_id"`
+		Subnet        string   `json:"subnet"`
+	}{
+		IP:            ip,
+		IPs:           localIPs,
+		Port:          s.UnifiedPort,
+		SetupPort:     s.UnifiedPort,
+		Token:         s.PairingToken,
+		CAFingerprint: s.CAFingerprint,
+		ServerID:      s.ConfigManager.Config.ServerID,
+		Subnet:        GetPrimarySubnet(),
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 const dashboardHTMLTemplate = `<!DOCTYPE html>
@@ -1153,24 +1193,28 @@ func (s *SetupServer) Start() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		hostname, _ := os.Hostname()
-		parts := strings.Split(s.ConfigManager.Config.GRPCPort, ":")
-		portNum := 50005
-		if len(parts) > 1 {
-			fmt.Sscanf(parts[len(parts)-1], "%d", &portNum)
-		}
-		httpPort := s.HTTPListener.Addr().(*net.TCPAddr).Port
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"server_id":   s.ConfigManager.Config.ServerID,
 			"server_name": hostname,
 			"version":     GetVersion(),
-			"port":        portNum,
-			"setup_port":  httpPort,
+			"port":        s.UnifiedPort,
+			"setup_port":  s.UnifiedPort,
 			"subnet":      GetPrimarySubnet(),
 		})
 	}
 	mux.HandleFunc("/api/v1/info", infoHandler)
 	mux.HandleFunc("/api/info", infoHandler)
+
+	mux.HandleFunc("/api/pair/payload", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"payload":        s.GetPairingJSON(),
+			"url":            s.ServerURL,
+			"ca_fingerprint": s.CAFingerprint,
+		})
+	})
 
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1255,35 +1299,7 @@ func (s *SetupServer) Start() {
 			ip = localIPs[0]
 		}
 
-		parts := strings.Split(s.ConfigManager.Config.GRPCPort, ":")
-		portNum := 50005
-		if len(parts) > 1 {
-			fmt.Sscanf(parts[len(parts)-1], "%d", &portNum)
-		}
-
-		httpPort := s.HTTPListener.Addr().(*net.TCPAddr).Port
-
-		payload := struct {
-			IP            string   `json:"ip"`
-			IPs           []string `json:"ips"`
-			Port          int      `json:"port"`
-			SetupPort     int      `json:"sport"`
-			Token         string   `json:"token"`
-			CAFingerprint string   `json:"fp"`
-			ServerID      string   `json:"server_id"`
-			Subnet        string   `json:"subnet"`
-		}{
-			IP:            ip,
-			IPs:           localIPs,
-			Port:          portNum,
-			SetupPort:     httpPort,
-			Token:         s.PairingToken,
-			CAFingerprint: s.CAFingerprint,
-			ServerID:      s.ConfigManager.Config.ServerID,
-			Subnet:        GetPrimarySubnet(),
-		}
-
-		jsonData, _ := json.Marshal(payload)
+		jsonData := s.GetPairingJSON()
 
 		tmpl, err := template.New("dashboard").Parse(dashboardHTMLTemplate)
 		if err != nil {
@@ -1306,9 +1322,9 @@ func (s *SetupServer) Start() {
 			BuildTime        string
 		}{
 			IP:               ip,
-			Port:             portNum,
+			Port:             s.UnifiedPort,
 			CAFingerprint:    s.CAFingerprint,
-			JSONData:         string(jsonData),
+			JSONData:         jsonData,
 			Config:           s.ConfigManager.Config,
 			IsFirstRun:       s.ConfigManager.IsFirstRun(),
 			OS:               runtime.GOOS,
@@ -1553,18 +1569,24 @@ func (s *SetupServer) Start() {
 	go func() {
 		log.Printf("Setup Web Interface running at: %s", s.ServerURL)
 
-		// Persist active URL to file for CLI and single-instance detection
+		// Persist active URL and pairing payload to file for CLI and single-instance detection
 		if urlFile := GetActiveURLFilePath(); urlFile != "" {
 			_ = os.WriteFile(urlFile, []byte(s.ServerURL), 0644)
+			qrFile := filepath.Join(filepath.Dir(urlFile), "snaphaven.qr")
+			_ = os.WriteFile(qrFile, []byte(s.GetPairingJSON()), 0644)
 		}
 
-		if s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage() {
+		if (s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage()) && !IsHeadless() {
 			OpenBrowser(s.ServerURL)
 		}
 		if err := server.Serve(s.HTTPListener); err != nil && err != http.ErrServerClosed {
 			log.Printf("Setup web server error: %v", err)
 		}
 	}()
+}
+
+func IsHeadless() bool {
+	return os.Getenv("HEADLESS") == "true" || os.Getenv("SNAP_HEADLESS") == "true"
 }
 
 func OpenBrowser(url string) {

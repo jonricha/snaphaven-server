@@ -6,24 +6,27 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"log"
 	"net"
 	"sync"
 
+	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 type ServerManager struct {
-	mu           sync.Mutex
-	configMgr    *ConfigManager
-	certMgr      *CertManager
-	deviceMgr    *DeviceManager
-	grpcServer   *grpc.Server
-	grpcListener net.Listener
-	setupServer  *SetupServer
-	isRunning    bool
+	mu              sync.Mutex
+	configMgr       *ConfigManager
+	certMgr         *CertManager
+	deviceMgr       *DeviceManager
+	grpcServer      *grpc.Server
+	pausableLis     *PausableListener
+	multiplexer     *UnifiedMultiplexer
+	mdnsBroadcaster *MDNSBroadcaster
+	setupServer     *SetupServer
+	boundPort       int
+	isRunning       bool
 }
 
 func NewServerManager(cm *ConfigManager, certMgr *CertManager, devMgr *DeviceManager) *ServerManager {
@@ -40,6 +43,21 @@ func (sm *ServerManager) IsRunning() bool {
 	return sm.isRunning
 }
 
+func (sm *ServerManager) BoundPort() int {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.boundPort
+}
+
+func (sm *ServerManager) HTTPListener() net.Listener {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if sm.multiplexer != nil {
+		return sm.multiplexer.HTTPListener()
+	}
+	return nil
+}
+
 func (sm *ServerManager) Start() error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -48,12 +66,32 @@ func (sm *ServerManager) Start() error {
 		return nil
 	}
 
-	cfg := sm.configMgr.Config
-	lis, err := net.Listen("tcp", cfg.GRPCPort)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", cfg.GRPCPort, err)
+	// 1. If multiplexer is already initialized and was just paused, unpause gRPC traffic
+	if sm.pausableLis != nil && sm.multiplexer != nil {
+		sm.pausableLis.SetPaused(false)
+		sm.isRunning = true
+		log.Printf("🟢 Resumed mTLS gRPC sync service on port :%d", sm.boundPort)
+		return nil
 	}
 
+	cfg := sm.configMgr.Config
+
+	// 2. Resilient Port Binding with Sequential Fallback Hunting
+	rootLis, boundPort, err := BindPortWithFallback(cfg.GRPCPort, 10, cfg.ServerID)
+	if err != nil {
+		return fmt.Errorf("failed to bind port %s: %w", cfg.GRPCPort, err)
+	}
+	sm.boundPort = boundPort
+
+	// 3. Initialize Single-Port Connection Multiplexer
+	mux := NewUnifiedMultiplexer(rootLis, boundPort)
+	sm.multiplexer = mux
+	mux.Start()
+
+	// 4. Wrap TLS listener with PausableListener for graceful pause/resume without socket teardown
+	sm.pausableLis = NewPausableListener(mux.TLSListener())
+
+	// 5. Configure Mutual TLS (mTLS) for gRPC
 	certPool := x509.NewCertPool()
 	certPool.AddCert(sm.certMgr.CACert)
 
@@ -86,19 +124,21 @@ func (sm *ServerManager) Start() error {
 	pb.RegisterSnapHavenServer(s, &server{syncdir: cfg.SyncDirectory})
 
 	sm.grpcServer = s
-	sm.grpcListener = lis
 	sm.isRunning = true
 
-	log.Printf("🟢 mTLS gRPC server started on %v (Sync directory: %v)", lis.Addr(), cfg.SyncDirectory)
+	log.Printf("🟢 Unified SnapHaven server listening on :%d (Sync directory: %v)", boundPort, cfg.SyncDirectory)
 
 	go func() {
-		if err := s.Serve(lis); err != nil && err != grpc.ErrServerStopped {
+		if err := s.Serve(sm.pausableLis); err != nil && err != grpc.ErrServerStopped {
 			log.Printf("❌ gRPC server error: %v", err)
 			sm.mu.Lock()
 			sm.isRunning = false
 			sm.mu.Unlock()
 		}
 	}()
+
+	// 6. Broadcast via mDNS for zero-config discovery
+	sm.mdnsBroadcaster = StartMDNSBroadcaster(cfg.ServerID, boundPort, GetVersion())
 
 	return nil
 }
@@ -111,16 +151,54 @@ func (sm *ServerManager) Stop() {
 		return
 	}
 
-	log.Printf("🔴 Stopping gRPC server...")
-	if sm.grpcServer != nil {
-		sm.grpcServer.GracefulStop()
+	log.Printf("⏸️ Pausing gRPC sync service...")
+	if sm.pausableLis != nil {
+		sm.pausableLis.SetPaused(true)
 	}
 	sm.isRunning = false
-	log.Printf("🔴 gRPC server stopped.")
+	log.Printf("⏸️ gRPC sync service paused (Web dashboard remains active).")
+}
+
+func (sm *ServerManager) Shutdown() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	log.Printf("🔴 Shutting down SnapHaven server...")
+	if sm.mdnsBroadcaster != nil {
+		sm.mdnsBroadcaster.Stop()
+		sm.mdnsBroadcaster = nil
+	}
+	if sm.grpcServer != nil {
+		sm.grpcServer.GracefulStop()
+		sm.grpcServer = nil
+	}
+	if sm.multiplexer != nil {
+		_ = sm.multiplexer.Close()
+		sm.multiplexer = nil
+		sm.pausableLis = nil
+	}
+	sm.isRunning = false
+	log.Printf("🔴 Server shut down cleanly.")
 }
 
 func (sm *ServerManager) Restart() error {
-	sm.Stop()
+	sm.mu.Lock()
+	if sm.mdnsBroadcaster != nil {
+		sm.mdnsBroadcaster.Stop()
+		sm.mdnsBroadcaster = nil
+	}
+	if sm.grpcServer != nil {
+		sm.grpcServer.Stop()
+		sm.grpcServer = nil
+	}
+	if sm.multiplexer != nil {
+		_ = sm.multiplexer.Close()
+		sm.multiplexer = nil
+		sm.pausableLis = nil
+	}
+	sm.isRunning = false
+	sm.mu.Unlock()
+
 	return sm.Start()
 }
 
