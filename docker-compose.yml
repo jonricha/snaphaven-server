@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: snaphaven/server:latest
+    image: ghcr.io/jonricha/snaphaven-server:latest
     container_name: snaphaven-server
     restart: unless-stopped
     ports:

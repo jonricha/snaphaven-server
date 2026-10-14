@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for SnapHaven Server (Headless / NAS / Container)
-FROM golang:1.19-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
@@ -13,8 +13,12 @@ RUN go mod download
 # Copy server source code
 COPY server/ ./
 
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
+
 # Build optimized static binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/snaphaven-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildTime=${BUILD_DATE}'" -o /build/snaphaven-server .
 
 # Final minimal production container
 FROM alpine:3.18

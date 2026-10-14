@@ -49,28 +49,36 @@ Because legacy devices like the DNS-323 lack the CPU power and RAM (64 MB) to ru
 Modern NAS devices have built-in Docker support.
 
 #### Using Docker Compose
-1. Place `docker-compose.yml` on your NAS:
+1. Place `docker-compose.yml` on your NAS (or use the one in this repository):
    ```yaml
    version: "3.8"
    services:
      snaphaven:
-       image: snaphaven/server:latest
+       image: ghcr.io/jonricha/snaphaven-server:latest
+       build:
+         context: .
+         dockerfile: Dockerfile
        container_name: snaphaven-server
        restart: unless-stopped
        ports:
          - "50005:50005"
        environment:
          - HEADLESS=true
-         - SNAP_DIR=/photos
+         - SNAP_DIR=/data/photos
          - SNAP_PORT=:50005
        volumes:
-         - /volume1/photos:/photos
+         - /volume1/photos:/data/photos
          - /volume1/docker/snaphaven/config:/config
    ```
 2. Start the container:
-   ```bash
-   docker-compose up -d
-   ```
+   - To use the pre-built image from GitHub Container Registry:
+     ```bash
+     docker compose up -d
+     ```
+   - To build and run locally from source:
+     ```bash
+     docker compose up --build -d
+     ```
 
 ---
 
