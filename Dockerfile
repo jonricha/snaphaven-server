@@ -30,11 +30,12 @@ COPY --from=builder /build/snaphaven-server /app/snaphaven-server
 EXPOSE 50005
 
 # Setup default directories for photos and configuration/certs
-VOLUME ["/photos", "/config"]
+RUN mkdir -p /data/photos && ln -s /data/photos /photos
+VOLUME ["/data/photos", "/config"]
 
 ENV HEADLESS=true \
-    SNAP_DIR=/photos \
+    SNAP_DIR=/data/photos \
     SNAP_PORT=:50005
 
 ENTRYPOINT ["/app/snaphaven-server"]
-CMD ["--headless", "--dir", "/photos", "--certdir", "/config/certs"]
+CMD ["--headless", "--dir", "/data/photos", "--certdir", "/config/certs"]
