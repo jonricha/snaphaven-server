@@ -606,7 +606,7 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager, dm *Devi
 func main() {
 	if len(os.Args) > 1 {
 		arg := strings.ToLower(os.Args[1])
-		if arg == "open" || arg == "dashboard" || arg == "qr" || arg == "status" || arg == "--open" || arg == "-open" || arg == "help" || arg == "--help" || arg == "-h" {
+		if arg == "open" || arg == "dashboard" || arg == "photos" || arg == "folder" || arg == "qr" || arg == "status" || arg == "--open" || arg == "-open" || arg == "--photos" || arg == "--folder" || arg == "help" || arg == "--help" || arg == "-h" {
 			HandleCLICommand(arg)
 			return
 		}
@@ -645,6 +645,10 @@ func main() {
 	flag.StringVar(&certDirFlag, "certdir", "", "Directory storing certificates and CA")
 	flag.BoolVar(&headlessFlag, "headless", false, "Run in headless mode without system tray")
 	flag.Parse()
+
+	if headlessFlag {
+		_ = os.Setenv("SNAP_HEADLESS", "true")
+	}
 
 	// Environment variable overrides (useful for Docker & NAS deployments)
 	if envDir := os.Getenv("SNAP_DIR"); envDir != "" && syncDirFlag == "" {

@@ -21,8 +21,23 @@ func HandleCLICommand(cmd string) {
 		fmt.Println("\nCommands:")
 		fmt.Println("  qr         Render the mobile pairing QR code directly in the terminal")
 		fmt.Println("  open       Open the web dashboard and pairing QR code in default browser")
+		fmt.Println("  photos     Open the synced photos folder in the system file explorer")
 		fmt.Println("  status     Display active server status and setup URL")
 		fmt.Println("  help       Show this help message")
+		return
+	}
+
+	if cmd == "photos" || cmd == "folder" || cmd == "--photos" || cmd == "--folder" {
+		cfgMgr, err := NewConfigManager("")
+		if err != nil {
+			fmt.Printf("⚠️ Failed to load configuration: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("📁 Opening photos folder: %s\n", cfgMgr.Config.SyncDirectory)
+		if err := OpenFolder(cfgMgr.Config.SyncDirectory); err != nil {
+			fmt.Printf("⚠️ Could not open file explorer: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 

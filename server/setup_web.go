@@ -538,6 +538,9 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             <button id="btn-settings" class="nav-btn" onclick="showTab('settings')">⚙️ Settings</button>
             <button id="btn-logs" class="nav-btn" onclick="showTab('logs')">📋 Live Logs</button>
             <button id="btn-about" class="nav-btn" onclick="showTab('about')">ℹ️ About</button>
+            {{if .CanOpenFolder}}
+            <button id="btn-open-photos-nav" class="nav-btn" style="border: 1px solid var(--border-color); color: #38bdf8;" onclick="openPhotosFolder(this)" title="Open synced photos directory in file explorer">📁 Open Photos</button>
+            {{end}}
         </div>
     </div>
 
@@ -640,7 +643,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 </div>
                 <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
                 <div class="info-box">
-                    <div><strong>Active Sync Directory:</strong> <span id="currentSyncDir">{{.Config.SyncDirectory}}</span></div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                        <div><strong>Active Sync Directory:</strong> <span id="currentSyncDir">{{.Config.SyncDirectory}}</span></div>
+                        {{if .CanOpenFolder}}
+                        <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.8rem; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; white-space: nowrap;" onclick="openPhotosFolder(this)">📁 Open Photos Folder</button>
+                        {{end}}
+                    </div>
                     <div style="margin-top: 6px;"><strong>gRPC Port:</strong> <span id="currentPort">{{.Config.GRPCPort}}</span></div>
                 </div>
             </div>
@@ -653,7 +661,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 <form id="settingsForm" onsubmit="saveSettings(event)">
                     <div class="form-group">
                         <label for="syncDir">Sync Storage Folder Path</label>
-                        <input type="text" id="syncDir" value="{{.Config.SyncDirectory}}">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="text" id="syncDir" value="{{.Config.SyncDirectory}}">
+                            {{if .CanOpenFolder}}
+                            <button type="button" class="btn" style="white-space: nowrap; background: transparent; border: 1px solid var(--border-color);" onclick="openPhotosFolder(this)" title="Open current sync folder in file explorer">📁 Open Folder</button>
+                            {{end}}
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="grpcPort">gRPC Listen Port</label>
@@ -1104,6 +1117,35 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 .then(() => updateStatusUI());
         }
 
+        function openPhotosFolder(btn) {
+            const origText = btn ? btn.innerText : "";
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "📂 Opening...";
+            }
+            fetch("/api/open-folder", { method: "POST" })
+                .then(r => r.json())
+                .then(data => {
+                    if (btn) {
+                        btn.innerText = data.success ? "✅ Opened!" : origText;
+                        setTimeout(() => {
+                            btn.innerText = origText;
+                            btn.disabled = false;
+                        }, 1500);
+                    }
+                    if (!data.success) {
+                        alert("Could not open photos folder: " + (data.error || "Unknown error"));
+                    }
+                })
+                .catch(err => {
+                    if (btn) {
+                        btn.innerText = origText;
+                        btn.disabled = false;
+                    }
+                    alert("Error opening photos folder: " + err);
+                });
+        }
+
         function saveSettings(e) {
             e.preventDefault();
             const statusEl = document.getElementById("settingsStatus");
@@ -1316,6 +1358,7 @@ func (s *SetupServer) Start() {
 			IsFirstRun       bool
 			OS               string
 			IsStorePackage   bool
+			CanOpenFolder    bool
 			FormattedVersion string
 			Version          string
 			Commit           string
@@ -1329,6 +1372,7 @@ func (s *SetupServer) Start() {
 			IsFirstRun:       s.ConfigManager.IsFirstRun(),
 			OS:               runtime.GOOS,
 			IsStorePackage:   IsStorePackage(),
+			CanOpenFolder:    !IsHeadless() && IsLocalMachineRequest(r),
 			FormattedVersion: GetFormattedVersion(),
 			Version:          GetVersion(),
 			Commit:           GetCommit(),
@@ -1342,10 +1386,42 @@ func (s *SetupServer) Start() {
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"running":        s.ServerManager.IsRunning(),
-			"sync_directory": s.ConfigManager.Config.SyncDirectory,
-			"grpc_port":      s.ConfigManager.Config.GRPCPort,
+			"running":         s.ServerManager.IsRunning(),
+			"sync_directory":  s.ConfigManager.Config.SyncDirectory,
+			"grpc_port":       s.ConfigManager.Config.GRPCPort,
+			"can_open_folder": !IsHeadless() && IsLocalMachineRequest(r),
 		})
+	})
+
+	mux.HandleFunc("/api/open-folder", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if IsHeadless() {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Cannot open file explorer in headless mode.",
+			})
+			return
+		}
+		if !IsLocalMachineRequest(r) {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Opening the file explorer is only allowed from the local host machine.",
+			})
+			return
+		}
+		if err := OpenFolder(s.ConfigManager.Config.SyncDirectory); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	})
 
 	mux.HandleFunc("/api/server/toggle", func(w http.ResponseWriter, r *http.Request) {
@@ -1589,6 +1665,39 @@ func IsHeadless() bool {
 	return os.Getenv("HEADLESS") == "true" || os.Getenv("SNAP_HEADLESS") == "true"
 }
 
+// IsLocalMachineRequest returns true if the HTTP request originated from the host machine itself
+// (either loopback 127.0.0.1/::1 or one of the host's own network interface addresses).
+func IsLocalMachineRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	reqIP := net.ParseIP(host)
+	if reqIP == nil {
+		return false
+	}
+	if reqIP.IsLoopback() {
+		return true
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		var ifaceIP net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ifaceIP = v.IP
+		case *net.IPAddr:
+			ifaceIP = v.IP
+		}
+		if ifaceIP != nil && ifaceIP.Equal(reqIP) {
+			return true
+		}
+	}
+	return false
+}
+
 func OpenBrowser(url string) {
 	var err error
 	switch runtime.GOOS {
@@ -1602,4 +1711,32 @@ func OpenBrowser(url string) {
 	if err != nil {
 		log.Printf("Notice: Could not automatically open browser: %v. Please open %s manually.", err, url)
 	}
+}
+
+// OpenFolder ensures the target directory exists and opens it in the OS native file explorer.
+func OpenFolder(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("sync directory path is empty")
+	}
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("invalid folder path: %w", err)
+	}
+	if err := os.MkdirAll(absPath, 0755); err != nil {
+		return fmt.Errorf("failed to create or access folder: %w", err)
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		err = exec.Command("explorer", absPath).Start()
+	case "darwin":
+		err = exec.Command("open", absPath).Start()
+	default:
+		err = exec.Command("xdg-open", absPath).Start()
+	}
+	if err != nil {
+		log.Printf("Notice: Could not open file explorer for %s: %v", absPath, err)
+		return err
+	}
+	return nil
 }

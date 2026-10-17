@@ -11,43 +11,47 @@ type TrayStrings struct {
 	StatusStopped   string
 	ShowQRCode      string
 	ShowQRTooltip   string
-	OpenDashboard   string
-	DashTooltip     string
-	Settings        string
-	SettingsTooltip string
-	ViewLogs        string
-	LogsTooltip     string
-	CheckUpdates    string
-	UpdatesTooltip  string
-	InstallUpdate   string
-	About           string
-	AboutTooltip    string
-	PauseServer     string
-	StartServer     string
-	Quit            string
-	QuitTooltip     string
+	OpenDashboard       string
+	DashTooltip         string
+	OpenPhotosFolder    string
+	PhotosFolderTooltip string
+	Settings            string
+	SettingsTooltip     string
+	ViewLogs            string
+	LogsTooltip         string
+	CheckUpdates        string
+	UpdatesTooltip      string
+	InstallUpdate       string
+	About               string
+	AboutTooltip        string
+	PauseServer         string
+	StartServer         string
+	Quit                string
+	QuitTooltip         string
 }
 
 var englishTrayStrings = TrayStrings{
-	StatusRunning:   "Status: Server Running",
-	StatusStopped:   "Status: Server Stopped",
-	ShowQRCode:      "📱 Show Pairing QR Code",
-	ShowQRTooltip:   "Open pairing page in browser",
-	OpenDashboard:   "🌐 Open Web Dashboard",
-	DashTooltip:     "Open management dashboard in browser",
-	Settings:        "⚙️ Settings",
-	SettingsTooltip: "Open settings tab in browser",
-	ViewLogs:        "📋 View Live Logs",
-	LogsTooltip:     "Open logs tab in browser",
-	CheckUpdates:    "🔄 Check for Updates...",
-	UpdatesTooltip:  "Check for software updates",
-	InstallUpdate:   "✨ Install Update (%s)...",
-	About:           "ℹ️ About SnapHaven...",
-	AboutTooltip:    "View software version, author, and build details",
-	PauseServer:     "Pause Server",
-	StartServer:     "Start Server",
-	Quit:            "Quit SnapHaven",
-	QuitTooltip:     "Quit the SnapHaven server application",
+	StatusRunning:       "Status: Server Running",
+	StatusStopped:       "Status: Server Stopped",
+	ShowQRCode:          "📱 Show Pairing QR Code",
+	ShowQRTooltip:       "Open pairing page in browser",
+	OpenDashboard:       "🌐 Open Web Dashboard",
+	DashTooltip:         "Open management dashboard in browser",
+	OpenPhotosFolder:    "📁 Open Photos Folder",
+	PhotosFolderTooltip: "Open synced photos folder in file explorer",
+	Settings:            "⚙️ Settings",
+	SettingsTooltip:     "Open settings tab in browser",
+	ViewLogs:            "📋 View Live Logs",
+	LogsTooltip:         "Open logs tab in browser",
+	CheckUpdates:        "🔄 Check for Updates...",
+	UpdatesTooltip:      "Check for software updates",
+	InstallUpdate:       "✨ Install Update (%s)...",
+	About:               "ℹ️ About SnapHaven...",
+	AboutTooltip:        "View software version, author, and build details",
+	PauseServer:         "Pause Server",
+	StartServer:         "Start Server",
+	Quit:                "Quit SnapHaven",
+	QuitTooltip:         "Quit the SnapHaven server application",
 }
 
 // DetectLanguage inspects environment variables to determine system language code (e.g. "en", "es", "de").

@@ -53,6 +53,7 @@ func (t *TrayApp) onReady() {
 
 	mQR := systray.AddMenuItem(ts.ShowQRCode, ts.ShowQRTooltip)
 	mDashboard := systray.AddMenuItem(ts.OpenDashboard, ts.DashTooltip)
+	mPhotos := systray.AddMenuItem(ts.OpenPhotosFolder, ts.PhotosFolderTooltip)
 	mSettings := systray.AddMenuItem(ts.Settings, ts.SettingsTooltip)
 	mLogs := systray.AddMenuItem(ts.ViewLogs, ts.LogsTooltip)
 	var mCheckUpdate *systray.MenuItem
@@ -80,6 +81,14 @@ func (t *TrayApp) onReady() {
 
 	mDashboard.Click(func() {
 		OpenBrowser(t.setupServer.ServerURL + "/")
+	})
+
+	mPhotos.Click(func() {
+		if t.serverMgr != nil && t.serverMgr.configMgr != nil {
+			_ = OpenFolder(t.serverMgr.configMgr.Config.SyncDirectory)
+		} else if t.setupServer != nil && t.setupServer.ConfigManager != nil {
+			_ = OpenFolder(t.setupServer.ConfigManager.Config.SyncDirectory)
+		}
 	})
 
 	mSettings.Click(func() {

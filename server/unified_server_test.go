@@ -202,3 +202,34 @@ func TestUnifiedServer_SinglePortEndToEnd(t *testing.T) {
 		t.Errorf("expected server to report running after Start()")
 	}
 }
+
+func TestIsLocalMachineRequest(t *testing.T) {
+	loopbackReq := &http.Request{RemoteAddr: "127.0.0.1:54321"}
+	if !IsLocalMachineRequest(loopbackReq) {
+		t.Errorf("expected loopback IPv4 request to be recognized as local")
+	}
+
+	ipv6LoopbackReq := &http.Request{RemoteAddr: "[::1]:54321"}
+	if !IsLocalMachineRequest(ipv6LoopbackReq) {
+		t.Errorf("expected loopback IPv6 request to be recognized as local")
+	}
+
+	externalReq := &http.Request{RemoteAddr: "203.0.113.42:54321"}
+	if IsLocalMachineRequest(externalReq) {
+		t.Errorf("expected external IP 203.0.113.42 to be rejected")
+	}
+
+	localIPs := GetLocalIPs()
+	if len(localIPs) > 0 {
+		lanSelfReq := &http.Request{RemoteAddr: fmt.Sprintf("%s:54321", localIPs[0])}
+		if !IsLocalMachineRequest(lanSelfReq) {
+			t.Errorf("expected host's own interface IP %s to be recognized as local", localIPs[0])
+		}
+	}
+
+	ts := GetTrayStrings()
+	if ts.OpenPhotosFolder == "" {
+		t.Errorf("expected TrayStrings.OpenPhotosFolder to be non-empty")
+	}
+}
+
