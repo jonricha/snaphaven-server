@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -71,11 +72,21 @@ func (dm *DeviceManager) load() error {
 	return nil
 }
 
+func sortDevices(list []*PairedDevice) {
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].PairedAt.Equal(list[j].PairedAt) {
+			return list[i].PairedAt.Before(list[j].PairedAt)
+		}
+		return list[i].SerialNumber < list[j].SerialNumber
+	})
+}
+
 func (dm *DeviceManager) saveLocked() error {
 	list := make([]*PairedDevice, 0, len(dm.devices))
 	for _, dev := range dm.devices {
 		list = append(list, dev)
 	}
+	sortDevices(list)
 
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
@@ -252,6 +263,7 @@ func (dm *DeviceManager) GetAllDevices() []*PairedDevice {
 		cp := *dev
 		res = append(res, &cp)
 	}
+	sortDevices(res)
 	return res
 }
 

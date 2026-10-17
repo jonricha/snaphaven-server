@@ -83,6 +83,42 @@ func TestDeviceManager_CRUD(t *testing.T) {
 	}
 }
 
+func TestDeviceManager_DeterministicOrdering(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "devicemanager_order_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dm, err := NewDeviceManager(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create DeviceManager: %v", err)
+	}
+
+	serials := []string{"dd04", "aa01", "cc03", "bb02", "ee05"}
+	for _, s := range serials {
+		dm.RegisterDevice(s, "fp-"+s, "Device "+s, "Model")
+	}
+
+	firstOrder := dm.GetAllDevices()
+	if len(firstOrder) != len(serials) {
+		t.Fatalf("expected %d devices, got %d", len(serials), len(firstOrder))
+	}
+
+	// Repeated calls and mutations should never scramble the relative order
+	dm.RevokeDevice("cc03")
+	dm.RenameDevice("aa01", "Renamed A")
+	dm.UnrevokeDevice("cc03")
+
+	for iter := 0; iter < 20; iter++ {
+		devs := dm.GetAllDevices()
+		for i := range devs {
+			if devs[i].SerialNumber != firstOrder[i].SerialNumber {
+				t.Fatalf("iteration %d: order changed at index %d (expected %s, got %s)", iter, i, firstOrder[i].SerialNumber, devs[i].SerialNumber)
+			}
+		}
+	}
+}
+
 func TestDeviceRevocation_mTLSHandshake(t *testing.T) {
 	tempdir, err := ioutil.TempDir("", "revocation_server_test")
 	if err != nil {
