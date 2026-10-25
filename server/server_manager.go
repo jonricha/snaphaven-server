@@ -96,9 +96,9 @@ func (sm *ServerManager) Start() error {
 	certPool.AddCert(sm.certMgr.CACert)
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{sm.certMgr.ServerTLSCert},
-		ClientCAs:    certPool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		GetCertificate: sm.certMgr.GetCertificate,
+		ClientCAs:      certPool,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
 		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 				return fmt.Errorf("no verified client certificate chain")

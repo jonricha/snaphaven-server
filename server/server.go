@@ -572,9 +572,9 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager, dm *Devi
 	certPool.AddCert(cm.CACert)
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cm.ServerTLSCert},
-		ClientCAs:    certPool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		GetCertificate: cm.GetCertificate,
+		ClientCAs:      certPool,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
 		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 				return fmt.Errorf("no verified client certificate chain")

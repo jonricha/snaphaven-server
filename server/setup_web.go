@@ -224,6 +224,27 @@ func NewSetupServer(listener net.Listener, boundPort int, cm *CertManager, dm *D
 	return s, nil
 }
 
+func (s *SetupServer) RefreshNetwork() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	localIPs := GetLocalIPs()
+	hostIP := "localhost"
+	if len(localIPs) > 0 {
+		hostIP = localIPs[0]
+	}
+	s.ServerURL = fmt.Sprintf("http://%s:%d", hostIP, s.UnifiedPort)
+
+	if urlFile := GetActiveURLFilePath(); urlFile != "" {
+		_ = os.WriteFile(urlFile, []byte(s.ServerURL), 0644)
+		qrFile := filepath.Join(filepath.Dir(urlFile), "snaphaven.qr")
+		_ = os.WriteFile(qrFile, []byte(s.GetPairingJSON()), 0644)
+	}
+}
+
 func (s *SetupServer) GetPairingJSON() string {
 	localIPs := GetLocalIPs()
 	ip := "127.0.0.1"
