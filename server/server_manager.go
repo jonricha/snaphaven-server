@@ -13,6 +13,8 @@ import (
 	pb "github.com/jonricha/snaphaven-server/snaphaven"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
+	"time"
 )
 
 type ServerManager struct {
@@ -120,7 +122,20 @@ func (sm *ServerManager) Start() error {
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
-	s := grpc.NewServer(grpc.Creds(creds))
+	kaep := keepalive.EnforcementPolicy{
+		MinTime:             5 * time.Second,
+		PermitWithoutStream: true,
+	}
+	kasp := keepalive.ServerParameters{
+		MaxConnectionIdle:     15 * time.Minute,
+		Time:                  2 * time.Hour,
+		Timeout:               20 * time.Second,
+	}
+	s := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.KeepaliveEnforcementPolicy(kaep),
+		grpc.KeepaliveParams(kasp),
+	)
 	pb.RegisterSnapHavenServer(s, &server{syncdir: cfg.SyncDirectory})
 
 	sm.grpcServer = s

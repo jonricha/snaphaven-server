@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 type server struct {
@@ -595,8 +596,20 @@ func RegisterServer(commonSyncDir string, port string, cm *CertManager, dm *Devi
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
-	var opts []grpc.ServerOption
-	opts = []grpc.ServerOption{grpc.Creds(creds)}
+	kaep := keepalive.EnforcementPolicy{
+		MinTime:             5 * time.Second,
+		PermitWithoutStream: true,
+	}
+	kasp := keepalive.ServerParameters{
+		MaxConnectionIdle:     15 * time.Minute,
+		Time:                  2 * time.Hour,
+		Timeout:               20 * time.Second,
+	}
+	opts := []grpc.ServerOption{
+		grpc.Creds(creds),
+		grpc.KeepaliveEnforcementPolicy(kaep),
+		grpc.KeepaliveParams(kasp),
+	}
 	s := grpc.NewServer(opts...)
 	pb.RegisterSnapHavenServer(s, &server{syncdir: commonSyncDir})
 	log.Printf("mTLS gRPC server listening at %v, serving directory: %v", lis.Addr(), commonSyncDir)
