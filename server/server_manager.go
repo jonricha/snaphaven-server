@@ -135,6 +135,8 @@ func (sm *ServerManager) Start() error {
 		grpc.Creds(creds),
 		grpc.KeepaliveEnforcementPolicy(kaep),
 		grpc.KeepaliveParams(kasp),
+		grpc.InitialWindowSize(4 * 1024 * 1024),
+		grpc.InitialConnWindowSize(8 * 1024 * 1024),
 	)
 	pb.RegisterSnapHavenServer(s, &server{syncdir: cfg.SyncDirectory})
 
