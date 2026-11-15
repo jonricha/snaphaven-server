@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +32,11 @@ func TestEnsureSingleInstance(t *testing.T) {
 }
 
 func TestAutoStartConfig(t *testing.T) {
+	if IsMacAppStore() {
+		if exe, err := os.Executable(); err == nil && !strings.Contains(exe, ".app/Contents/MacOS/") {
+			t.Skip("SMAppService.mainAppService requires a macOS .app bundle")
+		}
+	}
 	err := SetAutoStartConfig(false)
 	if err != nil {
 		t.Fatalf("SetAutoStartConfig(false) failed: %v", err)

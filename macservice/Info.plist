@@ -14,9 +14,25 @@
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>__BUILD_NUMBER__</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Jonathan Richardson. All rights reserved.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>SnapHaven Server advertises itself on your local network so your mobile devices can discover and securely back up photos and videos.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_photosync._tcp</string>
+    </array>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>

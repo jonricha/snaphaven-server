@@ -23,6 +23,9 @@ func SetAutoStartConfig(enabled bool) error {
 		return nil
 
 	case "darwin":
+		if IsMacAppStore() {
+			return SetAutoStartDarwinMAS(enabled)
+		}
 		// macOS LaunchAgent plist: ~/Library/LaunchAgents/app.snaphaven.server.plist
 		home, err := os.UserHomeDir()
 		if err != nil {

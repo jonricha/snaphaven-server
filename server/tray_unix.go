@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"runtime"
 )
 
 func ShowAboutDialog(version, commit, buildTime string) {
@@ -22,4 +23,7 @@ func ShowAboutDialog(version, commit, buildTime string) {
 		version, commit, buildTime,
 	)
 	log.Println(msg)
+	if runtime.GOOS == "darwin" {
+		ShowAboutDialogPlatform("SnapHaven Server", msg)
+	}
 }

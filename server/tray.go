@@ -58,7 +58,8 @@ func (t *TrayApp) onReady() {
 	mLogs := systray.AddMenuItem(ts.ViewLogs, ts.LogsTooltip)
 	var mCheckUpdate *systray.MenuItem
 	if IsStorePackage() {
-		mStoreUpdate := systray.AddMenuItem("Updates: Managed by Microsoft Store", "Updates are installed automatically by the Microsoft Store")
+		storeName := GetStoreName()
+		mStoreUpdate := systray.AddMenuItem("Updates: Managed by "+storeName, "Updates are installed automatically by the "+storeName)
 		mStoreUpdate.Disable()
 	} else {
 		mCheckUpdate = systray.AddMenuItem(ts.CheckUpdates, ts.UpdatesTooltip)

@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 type PairingPayload struct {
@@ -685,6 +686,9 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                         <label for="syncDir">Sync Storage Folder Path</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="text" id="syncDir" value="{{.Config.SyncDirectory}}">
+                            {{if .CanPickFolder}}
+                            <button type="button" class="btn" style="white-space: nowrap;" onclick="pickSyncFolder(this)" title="Choose sync folder">📂 Choose Folder...</button>
+                            {{end}}
                             {{if .CanOpenFolder}}
                             <button type="button" class="btn" style="white-space: nowrap; background: transparent; border: 1px solid var(--border-color);" onclick="openPhotosFolder(this)" title="Open current sync folder in file explorer">📁 Open Folder</button>
                             {{end}}
@@ -711,7 +715,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     <div>
                         <div style="font-size: 0.9rem; color: var(--text-muted);">Installed Server Version</div>
                         <div style="font-size: 1.1rem; font-weight: bold; margin-top: 4px;" id="settingsVersionText">{{.FormattedVersion}}</div>
-                        <div id="updateStatusSubtext" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">{{if .IsStorePackage}}📦 Updates are managed automatically by the Microsoft Store.{{end}}</div>
+                        <div id="updateStatusSubtext" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">{{if .IsStorePackage}}📦 Updates are managed automatically by the {{.StoreName}}.{{end}}</div>
                     </div>
                     {{if not .IsStorePackage}}
                     <button type="button" class="btn" id="checkUpdatesBtn" onclick="checkUpdates(true)">🔄 Check for Updates</button>
@@ -1139,6 +1143,43 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 .then(() => updateStatusUI());
         }
 
+        function pickSyncFolder(btn) {
+            const origText = btn ? btn.innerText : "";
+            const statusEl = document.getElementById("settingsStatus");
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "📂 Choosing...";
+            }
+            fetch("/api/pick-folder", { method: "POST" })
+                .then(r => r.json())
+                .then(data => {
+                    if (btn) {
+                        btn.innerText = origText;
+                        btn.disabled = false;
+                    }
+                    if (data.cancelled) {
+                        return;
+                    }
+                    if (data.success && data.sync_directory) {
+                        document.getElementById("syncDir").value = data.sync_directory;
+                        document.getElementById("currentSyncDir").innerText = data.sync_directory;
+                        if (statusEl) {
+                            statusEl.innerText = "✅ Sync folder updated!";
+                        }
+                        updateStatusUI();
+                    } else {
+                        alert("Could not select folder: " + (data.error || "Unknown error"));
+                    }
+                })
+                .catch(err => {
+                    if (btn) {
+                        btn.innerText = origText;
+                        btn.disabled = false;
+                    }
+                    alert("Error selecting folder: " + err);
+                });
+        }
+
         function openPhotosFolder(btn) {
             const origText = btn ? btn.innerText : "";
             if (btn) {
@@ -1408,7 +1449,9 @@ func (s *SetupServer) start(allowBrowserLaunch bool) {
 			IsFirstRun       bool
 			OS               string
 			IsStorePackage   bool
+			StoreName        string
 			CanOpenFolder    bool
+			CanPickFolder    bool
 			FormattedVersion string
 			Version          string
 			Commit           string
@@ -1422,7 +1465,9 @@ func (s *SetupServer) start(allowBrowserLaunch bool) {
 			IsFirstRun:       s.ConfigManager.IsFirstRun(),
 			OS:               runtime.GOOS,
 			IsStorePackage:   IsStorePackage(),
+			StoreName:        GetStoreName(),
 			CanOpenFolder:    !IsHeadless() && IsLocalMachineRequest(r),
+			CanPickFolder:    !IsHeadless() && IsLocalMachineRequest(r),
 			FormattedVersion: GetFormattedVersion(),
 			Version:          GetVersion(),
 			Commit:           GetCommit(),
@@ -1474,6 +1519,58 @@ func (s *SetupServer) start(allowBrowserLaunch bool) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	})
 
+	mux.HandleFunc("/api/pick-folder", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if IsHeadless() || !IsLocalMachineRequest(r) {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Folder picker is only available from the local host machine.",
+			})
+			return
+		}
+		selectedPath, bookmarkB64, cancelled, err := PickFolderPlatform(s.ConfigManager.Config.SyncDirectory)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+		if cancelled {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":   true,
+				"cancelled": true,
+			})
+			return
+		}
+		cfg := s.ConfigManager.Config
+		cfg.SyncDirectory = selectedPath
+		cfg.SyncDirectoryBookmark = bookmarkB64
+		if err := s.ConfigManager.Update(cfg); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":        true,
+			"sync_directory": selectedPath,
+		})
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			s.ServerManager.Restart()
+		}()
+	})
+
 	mux.HandleFunc("/api/server/toggle", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if s.ServerManager.IsRunning() {
@@ -1492,7 +1589,11 @@ func (s *SetupServer) start(allowBrowserLaunch bool) {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 				return
 			}
+			newCfg.ServerID = s.ConfigManager.Config.ServerID
 			newCfg.CertDirectory = s.ConfigManager.Config.CertDirectory
+			if newCfg.SyncDirectory == s.ConfigManager.Config.SyncDirectory {
+				newCfg.SyncDirectoryBookmark = s.ConfigManager.Config.SyncDirectoryBookmark
+			}
 			if err := s.ConfigManager.Update(newCfg); err != nil {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 				return
@@ -1760,7 +1861,7 @@ func OpenBrowser(url string) {
 	case "windows":
 		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	case "darwin":
-		err = exec.Command("open", url).Start()
+		err = OpenURLPlatform(url)
 	default:
 		err = exec.Command("xdg-open", url).Start()
 	}
@@ -1786,7 +1887,7 @@ func OpenFolder(path string) error {
 	case "windows":
 		err = exec.Command("explorer", absPath).Start()
 	case "darwin":
-		err = exec.Command("open", absPath).Start()
+		err = OpenFolderPlatform(absPath)
 	default:
 		err = exec.Command("xdg-open", absPath).Start()
 	}

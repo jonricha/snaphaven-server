@@ -688,6 +688,14 @@ func main() {
 	}
 	configMgr.Save()
 
+	if configMgr.Config.SyncDirectoryBookmark != "" {
+		if resolved, bmErr := RestoreSecurityScopedBookmarkPlatform(configMgr.Config.SyncDirectoryBookmark); bmErr != nil {
+			log.Printf("Notice: Could not restore security-scoped folder access: %v", bmErr)
+		} else if resolved != "" {
+			configMgr.Config.SyncDirectory = resolved
+		}
+	}
+
 	absSyncDir, err := filepath.Abs(configMgr.Config.SyncDirectory)
 	if err == nil {
 		configMgr.Config.SyncDirectory = absSyncDir

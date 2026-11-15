@@ -8,13 +8,14 @@ import (
 )
 
 type Config struct {
-	ServerID            string `json:"server_id,omitempty"`
-	SyncDirectory       string `json:"sync_directory"`
-	GRPCPort            string `json:"grpc_port"`
-	CertDirectory       string `json:"cert_directory"`
-	AutoStartOnBoot     bool   `json:"auto_start_on_boot"`
-	OpenBrowserOnLaunch bool   `json:"open_browser_on_launch"`
-	IsFirstRun          bool   `json:"is_first_run,omitempty"`
+	ServerID              string `json:"server_id,omitempty"`
+	SyncDirectory         string `json:"sync_directory"`
+	SyncDirectoryBookmark string `json:"sync_directory_bookmark,omitempty"`
+	GRPCPort              string `json:"grpc_port"`
+	CertDirectory         string `json:"cert_directory"`
+	AutoStartOnBoot       bool   `json:"auto_start_on_boot"`
+	OpenBrowserOnLaunch   bool   `json:"open_browser_on_launch"`
+	IsFirstRun            bool   `json:"is_first_run,omitempty"`
 }
 
 type ConfigManager struct {

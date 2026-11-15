@@ -112,14 +112,49 @@ func (um *UpdateManager) GetStatus() UpdateStatus {
 	return um.status
 }
 
-// IsStorePackage reports whether the application is running inside a Microsoft Store / MSIX package.
+// IsMacAppStore reports whether the application is running as a Mac App Store build.
+func IsMacAppStore() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	if isMASBuildTag {
+		return true
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	// Check for Contents/_MASReceipt/receipt inside the .app bundle
+	if idx := strings.Index(exe, ".app/Contents/MacOS/"); idx != -1 {
+		appBundle := exe[:idx+4]
+		receiptPath := filepath.Join(appBundle, "Contents", "_MASReceipt", "receipt")
+		if _, err := os.Stat(receiptPath); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// IsStorePackage reports whether the application is running inside a store-managed package
+// (Microsoft Store / MSIX on Windows, or Mac App Store on macOS).
 func IsStorePackage() bool {
+	if IsMacAppStore() {
+		return true
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return false
 	}
 	lower := strings.ToLower(exe)
 	return strings.Contains(lower, "windowsapps") || os.Getenv("MSIX_PACKAGE_NAME") != ""
+}
+
+// GetStoreName returns the human-readable store name for the current platform.
+func GetStoreName() string {
+	if runtime.GOOS == "darwin" {
+		return "Mac App Store"
+	}
+	return "Microsoft Store"
 }
 
 func (um *UpdateManager) CheckForUpdates() (*UpdateInfo, bool, error) {
