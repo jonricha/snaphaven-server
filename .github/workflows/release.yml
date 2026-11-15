@@ -97,7 +97,6 @@ jobs:
           ./macservice/build_mac_app.sh
 
       - name: Build & Sign Mac App Store Package (.pkg)
-        if: ${{ secrets.MAC_APP_CERT_P12 != '' && secrets.MAC_INSTALLER_CERT_P12 != '' && secrets.MAS_PROVISION_PROFILE_B64 != '' }}
         env:
           MAC_APP_CERT_P12: ${{ secrets.MAC_APP_CERT_P12 }}
           MAC_INSTALLER_CERT_P12: ${{ secrets.MAC_INSTALLER_CERT_P12 }}
@@ -106,6 +105,11 @@ jobs:
           MAC_APP_SIGN_IDENTITY: ${{ secrets.MAC_APP_SIGN_IDENTITY }}
           MAC_INSTALLER_SIGN_IDENTITY: ${{ secrets.MAC_INSTALLER_SIGN_IDENTITY }}
         run: |
+          if [ -z "$MAC_APP_CERT_P12" ] || [ -z "$MAC_INSTALLER_CERT_P12" ] || [ -z "$MAS_PROVISION_PROFILE_B64" ]; then
+            echo "MAS signing secrets not configured; skipping Mac App Store .pkg build."
+            exit 0
+          fi
+
           KEYCHAIN_PATH="$RUNNER_TEMP/mas-build.keychain-db"
           KEYCHAIN_PASS="$(openssl rand -hex 16)"
 
@@ -137,12 +141,11 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/mas-build.keychain-db" 2>/dev/null || true
 
       - name: Upload Mac App Store Package Artifact
-        if: ${{ secrets.MAC_APP_CERT_P12 != '' && secrets.MAC_INSTALLER_CERT_P12 != '' && secrets.MAS_PROVISION_PROFILE_B64 != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: SnapHavenServer-MAS-pkg
           path: macservice/SnapHavenServer-MAS.pkg
-          if-no-files-found: error
+          if-no-files-found: ignore
 
       - name: Upload macOS Release Asset
         uses: softprops/action-gh-release@v1
