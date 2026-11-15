@@ -182,6 +182,7 @@ type SetupServer struct {
 	UnifiedPort   int
 
 	mu            sync.Mutex
+	httpServer    *http.Server
 	pairedDevices map[string]bool
 }
 
@@ -1250,6 +1251,34 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 </html>`
 
 func (s *SetupServer) Start() {
+	s.start(true)
+}
+
+// RestartWithListener rebinds the HTTP setup server to a new listener/port after a ServerManager restart.
+func (s *SetupServer) RestartWithListener(listener net.Listener, boundPort int) {
+	if s == nil || listener == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.httpServer != nil {
+		_ = s.httpServer.Close()
+		s.httpServer = nil
+	}
+	s.HTTPListener = listener
+	s.UnifiedPort = boundPort
+	s.GRPCAddress = fmt.Sprintf(":%d", boundPort)
+	localIPs := GetLocalIPs()
+	hostIP := "localhost"
+	if len(localIPs) > 0 {
+		hostIP = localIPs[0]
+	}
+	s.ServerURL = fmt.Sprintf("http://%s:%d", hostIP, boundPort)
+	s.mu.Unlock()
+
+	s.start(false)
+}
+
+func (s *SetupServer) start(allowBrowserLaunch bool) {
 	mux := http.NewServeMux()
 
 	infoHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -1661,22 +1690,28 @@ func (s *SetupServer) Start() {
 	})
 
 
+	s.mu.Lock()
 	server := &http.Server{Handler: mux}
+	s.httpServer = server
+	listener := s.HTTPListener
+	serverURL := s.ServerURL
+	pairingJSON := s.GetPairingJSON()
+	s.mu.Unlock()
 
 	go func() {
-		log.Printf("Setup Web Interface running at: %s", s.ServerURL)
+		log.Printf("Setup Web Interface running at: %s", serverURL)
 
 		// Persist active URL and pairing payload to file for CLI and single-instance detection
 		if urlFile := GetActiveURLFilePath(); urlFile != "" {
-			_ = os.WriteFile(urlFile, []byte(s.ServerURL), 0644)
+			_ = os.WriteFile(urlFile, []byte(serverURL), 0644)
 			qrFile := filepath.Join(filepath.Dir(urlFile), "snaphaven.qr")
-			_ = os.WriteFile(qrFile, []byte(s.GetPairingJSON()), 0644)
+			_ = os.WriteFile(qrFile, []byte(pairingJSON), 0644)
 		}
 
-		if (s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage()) && !IsHeadless() {
-			OpenBrowser(s.ServerURL)
+		if allowBrowserLaunch && (s.ConfigManager.Config.OpenBrowserOnLaunch || s.ConfigManager.IsFirstRun() || IsStorePackage()) && !IsHeadless() {
+			OpenBrowser(serverURL)
 		}
-		if err := server.Serve(s.HTTPListener); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("Setup web server error: %v", err)
 		}
 	}()

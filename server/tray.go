@@ -69,6 +69,9 @@ func (t *TrayApp) onReady() {
 	mToggle := systray.AddMenuItem(ts.PauseServer, "Toggle gRPC sync server")
 	mQuit := systray.AddMenuItem(ts.Quit, ts.QuitTooltip)
 
+	// Attach the menu to NSStatusItem on macOS (no-op on Windows/Linux).
+	systray.CreateMenu()
+
 	if t.updater != nil && mCheckUpdate != nil {
 		t.updater.SetUpdateCallback(func(info *UpdateInfo) {
 			mCheckUpdate.SetTitle(fmt.Sprintf(ts.InstallUpdate, info.Version))

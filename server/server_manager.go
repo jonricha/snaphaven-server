@@ -216,7 +216,20 @@ func (sm *ServerManager) Restart() error {
 	sm.isRunning = false
 	sm.mu.Unlock()
 
-	return sm.Start()
+	if err := sm.Start(); err != nil {
+		return err
+	}
+
+	sm.mu.Lock()
+	setupServer := sm.setupServer
+	sm.mu.Unlock()
+	if setupServer != nil {
+		if httpLis := sm.HTTPListener(); httpLis != nil {
+			setupServer.RestartWithListener(httpLis, sm.BoundPort())
+		}
+	}
+
+	return nil
 }
 
 func (sm *ServerManager) AttachSetupServer(ss *SetupServer) {

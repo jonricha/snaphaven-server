@@ -201,6 +201,23 @@ func TestUnifiedServer_SinglePortEndToEnd(t *testing.T) {
 	if !srvMgr.IsRunning() {
 		t.Errorf("expected server to report running after Start()")
 	}
+
+	// 10. Verify Restart() rebinds SetupServer so HTTP endpoints keep responding
+	if err := srvMgr.Restart(); err != nil {
+		t.Fatalf("failed to restart server: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	restartedPort := srvMgr.BoundPort()
+	payloadURL := fmt.Sprintf("http://127.0.0.1:%d/api/pair/payload", restartedPort)
+	pairResp, err := http.Get(payloadURL)
+	if err != nil {
+		t.Fatalf("failed to query /api/pair/payload after Restart(): %v", err)
+	}
+	defer pairResp.Body.Close()
+	if pairResp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200 from /api/pair/payload after Restart(), got %d", pairResp.StatusCode)
+	}
 }
 
 func TestIsLocalMachineRequest(t *testing.T) {
