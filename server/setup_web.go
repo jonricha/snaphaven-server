@@ -685,7 +685,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     <div class="form-group">
                         <label for="syncDir">Sync Storage Folder Path</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="text" id="syncDir" value="{{.Config.SyncDirectory}}">
+                            <input type="text" id="syncDir" value="{{.Config.SyncDirectory}}" {{if and .IsStorePackage (eq .OS "darwin")}}readonly title="Use Choose Folder... to select a sync folder"{{end}}>
                             {{if .CanPickFolder}}
                             <button type="button" class="btn" style="white-space: nowrap;" onclick="pickSyncFolder(this)" title="Choose sync folder">📂 Choose Folder...</button>
                             {{end}}
@@ -1274,13 +1274,36 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 
         function copyLogs() {
             const text = logViewer.innerText;
-            navigator.clipboard.writeText(text).then(() => {
+            const onCopied = () => {
                 const status = document.getElementById("copyStatus");
                 status.innerText = "✅ Logs copied to clipboard!";
                 setTimeout(() => { status.innerText = ""; }, 3000);
-            }).catch(err => {
-                alert("Failed to copy logs: " + err);
-            });
+            };
+            const fallbackCopy = () => {
+                const ta = document.createElement("textarea");
+                ta.value = text;
+                ta.style.position = "fixed";
+                ta.style.opacity = "0";
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                try {
+                    if (document.execCommand("copy")) {
+                        onCopied();
+                    } else {
+                        alert("Failed to copy logs to clipboard.");
+                    }
+                } catch (e) {
+                    alert("Failed to copy logs: " + e);
+                } finally {
+                    document.body.removeChild(ta);
+                }
+            };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(onCopied).catch(fallbackCopy);
+            } else {
+                fallbackCopy();
+            }
         }
 
         function clearLogViewer() {

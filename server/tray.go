@@ -6,12 +6,16 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/energye/systray"
 )
 
 //go:embed icon.ico
 var trayIconBytes []byte
+
+//go:embed tray_template.png
+var macTrayTemplateBytes []byte
 
 type TrayApp struct {
 	serverMgr   *ServerManager
@@ -42,11 +46,17 @@ func (t *TrayApp) Run() {
 
 func (t *TrayApp) onReady() {
 	ts := GetTrayStrings()
-	systray.SetTitle("SnapHaven")
+	if runtime.GOOS != "darwin" {
+		systray.SetTitle("SnapHaven")
+	}
 	systray.SetTooltip("SnapHaven Server " + GetFormattedVersion())
 
-	// Set system tray icon from embedded icon.ico
-	systray.SetIcon(trayIconBytes)
+	// Set system tray icon (monochrome template PNG on macOS; embedded icon.ico on Windows/Linux)
+	if runtime.GOOS == "darwin" {
+		systray.SetTemplateIcon(macTrayTemplateBytes, trayIconBytes)
+	} else {
+		systray.SetIcon(trayIconBytes)
+	}
 
 	mStatus := systray.AddMenuItem(ts.StatusRunning, "Server Status")
 	mStatus.Disable()
