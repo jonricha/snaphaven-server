@@ -408,6 +408,63 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             margin: 20px 0;
         }
 
+        .playstore-box {
+            margin: 8px 0 18px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .playstore-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            background: #000000;
+            border: 1px solid #64748b;
+            color: #ffffff;
+            text-decoration: none;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+        }
+
+        .playstore-link:hover {
+            background: #0f172a;
+            border-color: #94a3b8;
+            transform: translateY(-1px);
+        }
+
+        .playstore-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            line-height: 1.15;
+            text-align: left;
+        }
+
+        .playstore-sub {
+            font-size: 0.62rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+
+        .playstore-main {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #ffffff;
+            letter-spacing: -0.01em;
+        }
+
+        #playstore-qrcode {
+            display: inline-block;
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 10px;
+        }
+
         .info-box {
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
@@ -586,6 +643,12 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
 
                 <div id="qrcode"></div>
 
+                <div class="playstore-box">
+                    <a class="playstore-link" href="https://play.google.com/store/apps/details?id=app.snaphaven" target="_blank" rel="noopener noreferrer">
+                        ▶ Get Android App on Google Play
+                    </a>
+                </div>
+
                 <div class="info-box" style="text-align: left;">
                     <div><strong>gRPC Target:</strong> {{.IP}}:{{.Port}}</div>
                     <div style="margin-top: 6px;"><strong>CA Fingerprint:</strong> {{.CAFingerprint}}</div>
@@ -630,6 +693,11 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                 <div id="devicesEmpty" style="display: none; text-align: center; padding: 30px; color: var(--text-muted);">
                     <div style="font-size: 2rem; margin-bottom: 8px;">📱</div>
                     No mobile devices have paired yet.<br>Scan the QR code under the <strong>Pairing QR Code</strong> tab using the SnapHaven Android app.
+                    <div style="margin-top: 14px;">
+                        <a class="playstore-link" href="https://play.google.com/store/apps/details?id=app.snaphaven" target="_blank" rel="noopener noreferrer">
+                            ▶ Get Android App on Google Play
+                        </a>
+                    </div>
                 </div>
 
                 <div id="devicesTableContainer" style="display: none; overflow-x: auto;">
@@ -764,6 +832,18 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                     {{end}}
                     <a href="https://github.com/jonricha/snaphaven-server" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">🌐 View Source on GitHub</a>
                     <a href="/licenses" target="_blank" class="btn" style="background: transparent; border: 1px solid var(--border-color); text-decoration: none; display: inline-block;">📜 Open Source Licenses</a>
+                </div>
+
+            <div class="card" style="margin-top: 20px; text-align: center;">
+                <h2 style="margin-top: 0;">📱 Mobile Companion App</h2>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px;">
+                    Scan with your phone camera to install <strong>SnapHaven</strong> on Android, then use the <strong>Pairing QR Code</strong> tab to connect.
+                </p>
+                <div id="playstore-qrcode" title="Scan with your phone camera to open Google Play"></div>
+                <div style="margin-top: 14px;">
+                    <a class="playstore-link" href="https://play.google.com/store/apps/details?id=app.snaphaven" target="_blank" rel="noopener noreferrer">
+                        ▶ Get Android App on Google Play
+                    </a>
                 </div>
             </div>
         </div>
@@ -940,6 +1020,30 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             colorDark : "#0f172a",
             colorLight : "#ffffff",
             correctLevel : QRCode.CorrectLevel.M
+        });
+
+        new QRCode(document.getElementById("playstore-qrcode"), {
+            text: "https://play.google.com/store/apps/details?id=app.snaphaven",
+            width: 150,
+            height: 150,
+            colorDark : "#0f172a",
+            colorLight : "#ffffff",
+            correctLevel : QRCode.CorrectLevel.M
+        });
+
+        const playBadgeHTML =
+            '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">' +
+                '<path fill="#2196F3" d="M3,2.5 L13.5,12 L3,21.5 C2.6,21.1 2.4,20.5 2.4,19.8 L2.4,4.2 C2.4,3.5 2.6,2.9 3,2.5 Z"/>' +
+                '<path fill="#34A853" d="M17,8.8 L13.5,12 L3,2.5 C3.4,2.1 4.1,2.1 4.8,2.5 L17,8.8 Z"/>' +
+                '<path fill="#EA4335" d="M13.5,12 L17,15.2 L4.8,21.5 C4.1,21.9 3.4,21.9 3,21.5 L13.5,12 Z"/>' +
+                '<path fill="#FBBC05" d="M20.6,10.8 C21.5,11.3 21.5,12.7 20.6,13.2 L17,15.2 L13.5,12 L17,8.8 L20.6,10.8 Z"/>' +
+            '</svg>' +
+            '<span class="playstore-text">' +
+                '<span class="playstore-sub">GET IT ON</span>' +
+                '<span class="playstore-main">Google Play</span>' +
+            '</span>';
+        document.querySelectorAll(".playstore-link").forEach(el => {
+            el.innerHTML = playBadgeHTML;
         });
 
         function showTab(tabId) {

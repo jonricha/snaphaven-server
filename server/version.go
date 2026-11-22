@@ -9,7 +9,7 @@ import (
 
 // Embedded build variables set via -ldflags during compilation
 var (
-	Version   = "v1.1.17"
+	Version   = "v1.1.18"
 	Commit    = "none"
 	BuildTime = "unknown"
 )
