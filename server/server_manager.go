@@ -138,7 +138,10 @@ func (sm *ServerManager) Start() error {
 		grpc.InitialWindowSize(4 * 1024 * 1024),
 		grpc.InitialConnWindowSize(8 * 1024 * 1024),
 	)
-	pb.RegisterSnapHavenServer(s, &server{syncdir: cfg.SyncDirectory})
+	pb.RegisterSnapHavenServer(s, &server{
+		syncdir:   cfg.SyncDirectory,
+		folderOrg: NormalizeFolderOrganization(cfg.FolderOrganization),
+	})
 
 	sm.grpcServer = s
 	sm.isRunning = true

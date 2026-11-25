@@ -117,4 +117,5 @@ You have two simple ways to scan the pairing QR code when there is no physical m
 | `snaphaven-server open` | Opens the web dashboard in your default desktop browser |
 | `snaphaven-server --headless` | Starts server in headless background mode (prints QR code on boot) |
 | `snaphaven-server --dir <path>` | Specifies custom directory for synced photos |
+| `snaphaven-server --folder-org <mode>` | Sets folder layout: `device` (default), `year_month` (`2026/2026-11`), or `year_month_day` (`2026/11/24`) |
 | `snaphaven-server --port <port>` | Specifies custom starting port (default `:50005`) |

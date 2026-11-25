@@ -604,3 +604,95 @@ func TestBackwardCompatiblePathResolution(t *testing.T) {
 		t.Errorf("Expected shouldSend=false via backward-compatibility DCIM fallback!")
 	}
 }
+
+func TestStreamingHashCacheInvalidation(t *testing.T) {
+	dir := t.TempDir()
+	fpath := filepath.Join(dir, "video.mp4")
+	v1 := bytes.Repeat([]byte("chunk-A-"), 16384)
+	if err := os.WriteFile(fpath, v1, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	h1, err := Hash_file_sha256(fpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected1, _ := Hash_bytes_sha256(v1)
+	if h1 != expected1 {
+		t.Fatalf("expected %s, got %s", expected1, h1)
+	}
+
+	// Cached repeat call
+	h1Cached, err := Hash_file_sha256(fpath)
+	if err != nil || h1Cached != expected1 {
+		t.Fatalf("cached hash mismatch: %v / %s", err, h1Cached)
+	}
+
+	// Modify file size/contents and verify cache updates
+	v2 := bytes.Repeat([]byte("chunk-B-updated-"), 16384)
+	if err := os.WriteFile(fpath, v2, 0644); err != nil {
+		t.Fatal(err)
+	}
+	h2, err := Hash_file_sha256(fpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected2, _ := Hash_bytes_sha256(v2)
+	if h2 != expected2 {
+		t.Fatalf("expected updated hash %s, got %s", expected2, h2)
+	}
+}
+
+func TestDateFolderOrganizationAndDeduplication(t *testing.T) {
+	syncDir := t.TempDir()
+	srv := &server{
+		syncdir:   syncDir,
+		folderOrg: FolderOrgYearMonth,
+	}
+
+	// Timestamp in local time: 2026-11-24 12:00:00 -> folder 2026/2026-11
+	modTimeMs := int64(1795546800000) // 2026-11-24T19:00:00Z
+	clientRelPath := "john_phone/DCIM/Camera/IMG_20261124_120000.jpg"
+	dest := ResolveTargetUploadPath(syncDir, FolderOrgYearMonth, clientRelPath, modTimeMs)
+
+	expectedDir := filepath.Join(syncDir, "john_phone", "2026", "2026-11")
+	if filepath.Dir(dest) != expectedDir {
+		t.Fatalf("expected dir %s, got %s", expectedDir, filepath.Dir(dest))
+	}
+
+	content := []byte("sample photo payload for date folder test")
+	hash, _ := Hash_bytes_sha256(content)
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv.recordIndexedFile(dest)
+
+	// Deduplication should find the relocated file even when client asks with original DCIM path
+	if srv.shouldSend(clientRelPath, hash) {
+		t.Fatalf("expected shouldSend=false for photo stored in YYYY/YYYY-MM layout")
+	}
+
+	// Storage Cleaner VerifyFiles should also confirm exists + size + hash match
+	verifyResp, err := srv.VerifyFiles(context.Background(), &pb.VerifyFilesRequest{
+		Items: []*pb.VerifyItem{
+			{
+				Path:   clientRelPath,
+				Size:   int64(len(content)),
+				Sha256: hash,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verifyResp.GetResults()) != 1 {
+		t.Fatalf("expected 1 verify result")
+	}
+	r := verifyResp.GetResults()[0]
+	if !r.GetExists() || !r.GetSizeMatches() || !r.GetHashMatches() {
+		t.Fatalf("expected full verify pass on relocated file, got exists=%v size=%v hash=%v", r.GetExists(), r.GetSizeMatches(), r.GetHashMatches())
+	}
+}

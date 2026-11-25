@@ -7,10 +7,26 @@ import (
 	"sync"
 )
 
+const (
+	FolderOrgDevice       = "device"
+	FolderOrgYearMonth    = "year_month"
+	FolderOrgYearMonthDay = "year_month_day"
+)
+
+func NormalizeFolderOrganization(val string) string {
+	switch val {
+	case FolderOrgYearMonth, FolderOrgYearMonthDay:
+		return val
+	default:
+		return FolderOrgDevice
+	}
+}
+
 type Config struct {
 	ServerID              string `json:"server_id,omitempty"`
 	SyncDirectory         string `json:"sync_directory"`
 	SyncDirectoryBookmark string `json:"sync_directory_bookmark,omitempty"`
+	FolderOrganization    string `json:"folder_organization,omitempty"`
 	GRPCPort              string `json:"grpc_port"`
 	CertDirectory         string `json:"cert_directory"`
 	AutoStartOnBoot       bool   `json:"auto_start_on_boot"`
@@ -59,6 +75,7 @@ func NewConfigManager(customPath string) (*ConfigManager, error) {
 		filePath: path,
 		Config: Config{
 			SyncDirectory:       defaultSync,
+			FolderOrganization:  FolderOrgDevice,
 			GRPCPort:            ":50005",
 			CertDirectory:       defaultCertDir,
 			AutoStartOnBoot:     false,
@@ -111,6 +128,7 @@ func (cm *ConfigManager) Load() error {
 		return err
 	}
 
+	loaded.FolderOrganization = NormalizeFolderOrganization(loaded.FolderOrganization)
 	cm.Config = loaded
 	return nil
 }

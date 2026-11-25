@@ -498,7 +498,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             color: var(--text-muted);
         }
 
-        input[type="text"] {
+        input[type="text"], select {
             width: 100%;
             padding: 10px 14px;
             background: var(--bg-primary);
@@ -639,7 +639,7 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
         <div id="pairing" class="tab-content active">
             <div class="card" style="text-align: center;">
                 <h2>Pair Mobile Device</h2>
-                <p style="color: var(--text-muted);">Scan this QR code with the <strong>SnapHaven Android App</strong> to pair your device with mTLS security.</p>
+                <p style="color: var(--text-muted);">Scan this QR code with the <strong>SnapHaven Mobile App</strong> (Android &amp; iOS) to pair privately over your home Wi-Fi.</p>
 
                 <div id="qrcode"></div>
 
@@ -763,7 +763,18 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="grpcPort">gRPC Listen Port</label>
+                        <label for="folderOrg">Photo Folder Organization</label>
+                        <select id="folderOrg">
+                            <option value="device" {{if or (eq .Config.FolderOrganization "") (eq .Config.FolderOrganization "device")}}selected{{end}}>Original Device Folders — e.g. phone/DCIM/Camera/IMG_001.jpg (Default)</option>
+                            <option value="year_month" {{if eq .Config.FolderOrganization "year_month"}}selected{{end}}>Year / Month — e.g. phone/2026/2026-11/IMG_001.jpg (Great for Explorer, Lightroom, Plex &amp; Immich)</option>
+                            <option value="year_month_day" {{if eq .Config.FolderOrganization "year_month_day"}}selected{{end}}>Year / Month / Day — e.g. phone/2026/11/24/IMG_001.jpg</option>
+                        </select>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px;">
+                            Switching layouts affects newly uploaded photos and never re-uploads or duplicates already backed-up files.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="grpcPort">Server Listen Port</label>
                         <input type="text" id="grpcPort" value="{{.Config.GRPCPort}}">
                     </div>
                     {{if ne .OS "windows"}}
@@ -1318,11 +1329,13 @@ const dashboardHTMLTemplate = `<!DOCTYPE html>
             const statusEl = document.getElementById("settingsStatus");
             statusEl.innerText = "Saving settings...";
             const autoStartEl = document.getElementById("autoStart");
+            const folderOrgEl = document.getElementById("folderOrg");
             fetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     sync_directory: document.getElementById("syncDir").value,
+                    folder_organization: folderOrgEl ? folderOrgEl.value : "device",
                     grpc_port: document.getElementById("grpcPort").value,
                     auto_start_on_boot: autoStartEl ? autoStartEl.checked : true
                 })
@@ -1718,6 +1731,7 @@ func (s *SetupServer) start(allowBrowserLaunch bool) {
 			}
 			newCfg.ServerID = s.ConfigManager.Config.ServerID
 			newCfg.CertDirectory = s.ConfigManager.Config.CertDirectory
+			newCfg.FolderOrganization = NormalizeFolderOrganization(newCfg.FolderOrganization)
 			if newCfg.SyncDirectory == s.ConfigManager.Config.SyncDirectory {
 				newCfg.SyncDirectoryBookmark = s.ConfigManager.Config.SyncDirectoryBookmark
 			}

@@ -10,13 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,10 +26,28 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+type cachedFileHash struct {
+	size        int64
+	modTimeNano int64
+	hash        string
+}
+
+var (
+	fileHashCacheMu sync.RWMutex
+	fileHashCache   = make(map[string]cachedFileHash)
+	dateFilenameRe  = regexp.MustCompile(`(20\d{2})[-_]?(\d{2})[-_]?(\d{2})`)
+)
+
+const maxFileHashCacheEntries = 50000
+
 type server struct {
 	pb.UnimplementedSnapHavenServer
-	syncdir  string
-	thumbMgr *ThumbnailManager
+	syncdir     string
+	folderOrg   string
+	thumbMgr    *ThumbnailManager
+	indexMu     sync.RWMutex
+	indexLoaded bool
+	byBaseName  map[string][]string
 }
 
 func (s *server) getThumbManager() *ThumbnailManager {
@@ -43,18 +62,266 @@ func (s *server) getThumbManager() *ThumbnailManager {
 	return s.thumbMgr
 }
 
+// Hash_file_sha256 streams a file from disk in 32 KB chunks without buffering the entire file
+// in RAM, and caches results keyed by (path, size, modTimeUnixNano) for fast repeat checks.
 func Hash_file_sha256(filePath string) (string, error) {
-	s, err := ioutil.ReadFile(filePath)
+	f, err := os.Open(filePath)
 	if err != nil {
 		return "", err
 	}
-	return Hash_bytes_sha256(s)
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if fi.IsDir() {
+		return "", fmt.Errorf("cannot hash directory: %s", filePath)
+	}
+
+	size := fi.Size()
+	modNano := fi.ModTime().UnixNano()
+
+	fileHashCacheMu.RLock()
+	if cached, ok := fileHashCache[filePath]; ok && cached.size == size && cached.modTimeNano == modNano {
+		fileHashCacheMu.RUnlock()
+		return cached.hash, nil
+	}
+	fileHashCacheMu.RUnlock()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	digest := hex.EncodeToString(hasher.Sum(nil))
+
+	fileHashCacheMu.Lock()
+	if len(fileHashCache) >= maxFileHashCacheEntries {
+		fileHashCache = make(map[string]cachedFileHash)
+	}
+	fileHashCache[filePath] = cachedFileHash{
+		size:        size,
+		modTimeNano: modNano,
+		hash:        digest,
+	}
+	fileHashCacheMu.Unlock()
+
+	return digest, nil
 }
 
 func Hash_bytes_sha256(b []byte) (string, error) {
 	hasher := sha256.New()
 	hasher.Write(b)
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func isStandardDeviceMediaRoot(segment string) bool {
+	switch strings.ToLower(strings.TrimSpace(segment)) {
+	case "dcim", "camera", "pictures", "movies", "download", "downloads", "screenshots", "whatsapp images", "whatsapp video", "recents":
+		return true
+	}
+	return false
+}
+
+func extractUserPrefix(clientRelPath string) string {
+	cleanRel := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(clientRelPath)), "/")
+	parts := strings.Split(cleanRel, "/")
+	if len(parts) >= 2 && parts[0] != "" && parts[0] != "." && parts[0] != ".." && !isStandardDeviceMediaRoot(parts[0]) {
+		return parts[0]
+	}
+	return ""
+}
+
+func resolvePhotoTimestamp(baseName string, modTimeMs int64) time.Time {
+	if modTimeMs > 0 {
+		return time.UnixMilli(modTimeMs)
+	}
+	if m := dateFilenameRe.FindStringSubmatch(baseName); len(m) == 4 {
+		if parsed, err := time.ParseInLocation("20060102", m[1]+m[2]+m[3], time.Local); err == nil {
+			return parsed
+		}
+	}
+	return time.Now()
+}
+
+// ResolveTargetUploadPath computes the destination file path on disk according to FolderOrganization.
+func ResolveTargetUploadPath(syncdir, folderOrg, clientRelPath string, modTimeMs int64) string {
+	org := NormalizeFolderOrganization(folderOrg)
+	if org == FolderOrgDevice {
+		return filepath.Join(syncdir, filepath.FromSlash(clientRelPath))
+	}
+
+	baseName := filepath.Base(filepath.FromSlash(clientRelPath))
+	prefix := extractUserPrefix(clientRelPath)
+	ts := resolvePhotoTimestamp(baseName, modTimeMs)
+
+	var dateSubdir string
+	if org == FolderOrgYearMonthDay {
+		dateSubdir = ts.Format("2006/01/02")
+	} else {
+		dateSubdir = ts.Format("2006/2006-01")
+	}
+
+	var candidate string
+	if prefix != "" {
+		candidate = filepath.Join(syncdir, prefix, filepath.FromSlash(dateSubdir), baseName)
+	} else {
+		candidate = filepath.Join(syncdir, filepath.FromSlash(dateSubdir), baseName)
+	}
+
+	// Avoid clobbering an existing different file with the same filename in the same date bucket
+	if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+		ext := filepath.Ext(baseName)
+		stem := strings.TrimSuffix(baseName, ext)
+		dir := filepath.Dir(candidate)
+		for idx := 1; idx < 1000; idx++ {
+			alt := filepath.Join(dir, fmt.Sprintf("%s_%d%s", stem, idx, ext))
+			if _, statErr := os.Stat(alt); os.IsNotExist(statErr) {
+				return alt
+			}
+		}
+	}
+
+	return candidate
+}
+
+func (s *server) ensureMediaIndex() {
+	s.indexMu.RLock()
+	if s.indexLoaded {
+		s.indexMu.RUnlock()
+		return
+	}
+	s.indexMu.RUnlock()
+
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	if s.indexLoaded {
+		return
+	}
+
+	idx := make(map[string][]string)
+	if s.syncdir != "" {
+		_ = filepath.Walk(s.syncdir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if path != s.syncdir && strings.HasPrefix(info.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			key := strings.ToLower(info.Name())
+			idx[key] = append(idx[key], path)
+			return nil
+		})
+	}
+	s.byBaseName = idx
+	s.indexLoaded = true
+}
+
+func (s *server) recordIndexedFile(fullPath string) {
+	s.ensureMediaIndex()
+	key := strings.ToLower(filepath.Base(fullPath))
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	for _, existing := range s.byBaseName[key] {
+		if existing == fullPath {
+			return
+		}
+	}
+	s.byBaseName[key] = append(s.byBaseName[key], fullPath)
+}
+
+func (s *server) findExistingMediaPath(relPath string, expectedHash string) string {
+	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(relPath))
+	if isSafePath(s.syncdir, fullPath) {
+		if fi, err := os.Stat(fullPath); err == nil && !fi.IsDir() {
+			if expectedHash == "" {
+				return fullPath
+			}
+			if h, err := Hash_file_sha256(fullPath); err == nil && h == expectedHash {
+				return fullPath
+			}
+		}
+	}
+
+	// Backward-compatibility path resolution (DCIM vs non-DCIM)
+	cleanRel := filepath.ToSlash(filepath.Clean(relPath))
+	parts := strings.Split(cleanRel, "/")
+	if len(parts) >= 3 && parts[1] == "DCIM" {
+		legacyPath := filepath.Join(s.syncdir, parts[0], filepath.Join(parts[2:]...))
+		if isSafePath(s.syncdir, legacyPath) {
+			if fi, err := os.Stat(legacyPath); err == nil && !fi.IsDir() {
+				if expectedHash == "" {
+					return legacyPath
+				}
+				if h, err := Hash_file_sha256(legacyPath); err == nil && h == expectedHash {
+					return legacyPath
+				}
+			}
+		}
+	} else if len(parts) >= 2 && parts[1] != "DCIM" {
+		dcimPath := filepath.Join(s.syncdir, parts[0], "DCIM", filepath.Join(parts[1:]...))
+		if isSafePath(s.syncdir, dcimPath) {
+			if fi, err := os.Stat(dcimPath); err == nil && !fi.IsDir() {
+				if expectedHash == "" {
+					return dcimPath
+				}
+				if h, err := Hash_file_sha256(dcimPath); err == nil && h == expectedHash {
+					return dcimPath
+				}
+			}
+		}
+	}
+
+	// Relocated date-folder lookup (e.g. YYYY/YYYY-MM or YYYY/MM/DD)
+	baseKey := strings.ToLower(filepath.Base(cleanRel))
+	if baseKey == "" || baseKey == "." || baseKey == "/" {
+		return ""
+	}
+	// Match files whose base name starts with stem as well (for _1 collision suffixes)
+	ext := strings.ToLower(filepath.Ext(baseKey))
+	stem := strings.TrimSuffix(baseKey, ext)
+
+	s.ensureMediaIndex()
+	s.indexMu.RLock()
+	var candidates []string
+	candidates = append(candidates, s.byBaseName[baseKey]...)
+	for k, list := range s.byBaseName {
+		if k != baseKey && strings.HasPrefix(k, stem+"_") && strings.HasSuffix(k, ext) {
+			candidates = append(candidates, list...)
+		}
+	}
+	s.indexMu.RUnlock()
+
+	prefix := extractUserPrefix(cleanRel)
+	prefixRoot := ""
+	if prefix != "" {
+		prefixRoot = filepath.Join(s.syncdir, prefix) + string(filepath.Separator)
+	}
+
+	// Check same-prefix candidates first, then any remaining candidates
+	for pass := 0; pass < 2; pass++ {
+		for _, cand := range candidates {
+			inPrefix := prefixRoot == "" || strings.HasPrefix(cand, prefixRoot)
+			if (pass == 0 && !inPrefix) || (pass == 1 && inPrefix) {
+				continue
+			}
+			fi, statErr := os.Stat(cand)
+			if statErr != nil || fi.IsDir() {
+				continue
+			}
+			if expectedHash == "" {
+				return cand
+			}
+			if h, err := Hash_file_sha256(cand); err == nil && h == expectedHash {
+				return cand
+			}
+		}
+	}
+
+	return ""
 }
 
 func (s *server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingReply, error) {
@@ -66,34 +333,7 @@ func (s *server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingReply, 
 }
 
 func (s *server) shouldSend(path string, remotehash string) bool {
-	fullPath := filepath.Join(s.syncdir, filepath.FromSlash(path))
-	hash, err := Hash_file_sha256(fullPath)
-	if err == nil && remotehash == hash {
-		return false
-	}
-
-	// Backward-compatibility path resolution:
-	// If path has DCIM, check without DCIM; if path doesn't have DCIM, check with DCIM.
-	cleanRel := filepath.ToSlash(filepath.Clean(path))
-	parts := strings.Split(cleanRel, "/")
-	if len(parts) >= 3 && parts[1] == "DCIM" {
-		// e.g. "phone/DCIM/Camera/IMG.jpg" -> "phone/Camera/IMG.jpg"
-		legacyPath := filepath.Join(s.syncdir, parts[0], filepath.Join(parts[2:]...))
-		legacyHash, err := Hash_file_sha256(legacyPath)
-		if err == nil && remotehash == legacyHash {
-			return false
-		}
-	} else if len(parts) >= 2 && parts[1] != "DCIM" {
-		// e.g. "phone/Camera/IMG.jpg" -> "phone/DCIM/Camera/IMG.jpg"
-		dcimPath := filepath.Join(s.syncdir, parts[0], "DCIM", filepath.Join(parts[1:]...))
-		dcimHash, err := Hash_file_sha256(dcimPath)
-		if err == nil && remotehash == dcimHash {
-			return false
-		}
-	}
-
-	// hash is different or file missing, so we need to send
-	return true
+	return s.findExistingMediaPath(path, remotehash) == ""
 }
 
 func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
@@ -106,21 +346,16 @@ func (s *server) SendFileInfo(stream pb.SnapHaven_SendFileInfoServer) error {
 		if err != nil {
 			return err
 		}
-		shouldSend := s.shouldSend(fileinfo.GetPath(), fileinfo.GetHash())
+		existingPath := s.findExistingMediaPath(fileinfo.GetPath(), fileinfo.GetHash())
+		shouldSend := (existingPath == "")
 		LogEvent(fmt.Sprintf("🔍 Checking %v (shouldSend: %v)", fileinfo.GetPath(), shouldSend))
 
 		needThumb := false
 		if tm != nil {
 			cleanPath := strings.TrimPrefix(filepath.FromSlash(fileinfo.GetPath()), string(filepath.Separator))
-			fullPath := filepath.Join(s.syncdir, cleanPath)
-			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-				parts := strings.Split(cleanPath, string(filepath.Separator))
-				if len(parts) > 1 {
-					altPath := filepath.Join(s.syncdir, filepath.Join(parts[1:]...))
-					if fi, err := os.Stat(altPath); err == nil && !fi.IsDir() {
-						fullPath = altPath
-					}
-				}
+			fullPath := existingPath
+			if fullPath == "" {
+				fullPath = filepath.Join(s.syncdir, cleanPath)
 			}
 			needThumb = !tm.HasThumbnailForFile(fullPath, cleanPath, fileinfo.GetHash())
 		}
@@ -157,6 +392,9 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 					t := time.UnixMilli(modTimeMs)
 					_ = os.Chtimes(fullpathfile, t, t)
 				}
+				if fullpathfile != "" {
+					s.recordIndexedFile(fullpathfile)
+				}
 			}
 			LogEvent(fmt.Sprintf("✅ Finished receiving %v", filename))
 			return stream.SendAndClose(&pb.FileReply{Path: filename, Received: true})
@@ -172,7 +410,10 @@ func (s *server) SendFiles(stream pb.SnapHaven_SendFilesServer) error {
 
 		if f == nil {
 			filename = file.GetPath()
-			fullpathfile = filepath.Join(s.syncdir, filepath.FromSlash(filename))
+			fullpathfile = ResolveTargetUploadPath(s.syncdir, s.folderOrg, filename, modTimeMs)
+			if !isSafePath(s.syncdir, fullpathfile) {
+				return fmt.Errorf("invalid or unauthorized upload path")
+			}
 			LogEvent(fmt.Sprintf("📥 Receiving file: %v -> %v", filename, fullpathfile))
 
 			if err = os.MkdirAll(filepath.Dir(fullpathfile), 0755); err != nil {
@@ -315,18 +556,20 @@ func (s *server) GetThumbnail(ctx context.Context, req *pb.ThumbnailRequest) (*p
 	}
 
 	cleanPath := strings.TrimPrefix(filepath.FromSlash(req.GetPath()), string(filepath.Separator))
-	fullPath := filepath.Join(s.syncdir, cleanPath)
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		// Try matching under any top-level device folder (e.g. s.syncdir/*/<cleanPath>)
-		matches, _ := filepath.Glob(filepath.Join(s.syncdir, "*", cleanPath))
-		if len(matches) > 0 {
-			fullPath = matches[0]
-		} else {
-			parts := strings.Split(cleanPath, string(filepath.Separator))
-			if len(parts) > 1 {
-				altPath := filepath.Join(s.syncdir, filepath.Join(parts[1:]...))
-				if fi, err := os.Stat(altPath); err == nil && !fi.IsDir() {
-					fullPath = altPath
+	fullPath := s.findExistingMediaPath(req.GetPath(), req.GetSha256())
+	if fullPath == "" {
+		fullPath = filepath.Join(s.syncdir, cleanPath)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			matches, _ := filepath.Glob(filepath.Join(s.syncdir, "*", cleanPath))
+			if len(matches) > 0 {
+				fullPath = matches[0]
+			} else {
+				parts := strings.Split(cleanPath, string(filepath.Separator))
+				if len(parts) > 1 {
+					altPath := filepath.Join(s.syncdir, filepath.Join(parts[1:]...))
+					if fi, err := os.Stat(altPath); err == nil && !fi.IsDir() {
+						fullPath = altPath
+					}
 				}
 			}
 		}
@@ -375,7 +618,10 @@ func (s *server) UploadThumbnail(ctx context.Context, req *pb.UploadThumbnailReq
 	}
 
 	cleanPath := strings.TrimPrefix(filepath.FromSlash(req.GetPath()), string(filepath.Separator))
-	fullPath := filepath.Join(s.syncdir, cleanPath)
+	fullPath := s.findExistingMediaPath(req.GetPath(), req.GetSha256())
+	if fullPath == "" {
+		fullPath = filepath.Join(s.syncdir, cleanPath)
+	}
 
 	primaryKey := tm.GetCacheKey(fullPath, "")
 	var altKey, shaKey string
@@ -506,29 +752,20 @@ func (s *server) VerifyFiles(ctx context.Context, req *pb.VerifyFilesRequest) (*
 	var results []*pb.VerifiedResult
 
 	for _, item := range req.GetItems() {
-		fullPath := filepath.Join(s.syncdir, filepath.FromSlash(item.GetPath()))
-		fi, err := os.Stat(fullPath)
-
-		// If not found, check backward-compatibility alternate path (DCIM vs non-DCIM)
-		if err != nil {
-			cleanRel := filepath.ToSlash(filepath.Clean(item.GetPath()))
-			parts := strings.Split(cleanRel, "/")
-			if len(parts) >= 3 && parts[1] == "DCIM" {
-				legacyPath := filepath.Join(s.syncdir, parts[0], filepath.Join(parts[2:]...))
-				fi, err = os.Stat(legacyPath)
-				if err == nil {
-					fullPath = legacyPath
-				}
-			} else if len(parts) >= 2 && parts[1] != "DCIM" {
-				dcimPath := filepath.Join(s.syncdir, parts[0], "DCIM", filepath.Join(parts[1:]...))
-				fi, err = os.Stat(dcimPath)
-				if err == nil {
-					fullPath = dcimPath
-				}
-			}
+		fullPath := s.findExistingMediaPath(item.GetPath(), item.GetSha256())
+		if fullPath == "" && item.GetSha256() != "" {
+			// Check if file exists at path/relocated path even if hash differs so Exists/SizeMatches report accurately
+			fullPath = s.findExistingMediaPath(item.GetPath(), "")
+		}
+		var fi os.FileInfo
+		var err error
+		if fullPath != "" {
+			fi, err = os.Stat(fullPath)
+		} else {
+			err = os.ErrNotExist
 		}
 
-		if err != nil || fi.IsDir() {
+		if err != nil || fi == nil || fi.IsDir() {
 			results = append(results, &pb.VerifiedResult{
 				Path:        item.GetPath(),
 				Exists:      false,
@@ -653,11 +890,12 @@ func main() {
 		log.Fatalf("Failed to initialize configuration manager: %v", err)
 	}
 
-	var syncDirFlag, portFlag, certDirFlag string
+	var syncDirFlag, portFlag, certDirFlag, folderOrgFlag string
 	var headlessFlag bool
 	flag.StringVar(&syncDirFlag, "dir", "", "Directory to sync files to")
 	flag.StringVar(&portFlag, "port", "", "Port to use (default is :50005)")
 	flag.StringVar(&certDirFlag, "certdir", "", "Directory storing certificates and CA")
+	flag.StringVar(&folderOrgFlag, "folder-org", "", "Folder organization: device, year_month, or year_month_day")
 	flag.BoolVar(&headlessFlag, "headless", false, "Run in headless mode without system tray")
 	flag.Parse()
 
@@ -672,6 +910,9 @@ func main() {
 	if envPort := os.Getenv("SNAP_PORT"); envPort != "" && portFlag == "" {
 		portFlag = envPort
 	}
+	if envFolderOrg := os.Getenv("SNAP_FOLDER_ORG"); envFolderOrg != "" && folderOrgFlag == "" {
+		folderOrgFlag = envFolderOrg
+	}
 
 	if syncDirFlag != "" {
 		configMgr.Config.SyncDirectory = syncDirFlag
@@ -681,6 +922,9 @@ func main() {
 	}
 	if certDirFlag != "" {
 		configMgr.Config.CertDirectory = certDirFlag
+	}
+	if folderOrgFlag != "" {
+		configMgr.Config.FolderOrganization = NormalizeFolderOrganization(folderOrgFlag)
 	}
 
 	if configMgr.Config.GRPCPort == "" {
