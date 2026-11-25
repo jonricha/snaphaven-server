@@ -220,13 +220,17 @@ jobs:
           TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
         run: |
           set -e
-          ls -lh release-assets/
+          find release-assets -type f -exec ls -lh {} +
 
-          # Ensure the GitHub Release exists (with retry for transient GitHub 5xx errors)
+          # Ensure a clean, published GitHub Release exists (with retry for transient GitHub 5xx errors)
+          if gh release view "$TAG_NAME" --json isDraft --jq .isDraft 2>/dev/null | grep -q "true"; then
+            echo "Removing stale draft release for $TAG_NAME..."
+            gh release delete "$TAG_NAME" --yes || true
+          fi
           for attempt in 1 2 3 4 5; do
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-              echo "Release $TAG_NAME already exists; syncing target commit."
-              gh release edit "$TAG_NAME" --target "${{ github.sha }}" || true
+              echo "Release $TAG_NAME already exists; syncing target commit and ensuring published state."
+              gh release edit "$TAG_NAME" --draft=false --tag "$TAG_NAME" --target "${{ github.sha }}" || true
               break
             fi
             if gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes; then
@@ -237,9 +241,8 @@ jobs:
             sleep $((attempt * 5))
           done
 
-          # Upload each asset sequentially with --clobber and retry on transient 500s
-          for asset in release-assets/*; do
-            [ -f "$asset" ] || continue
+          # Upload every built file recursively with --clobber and retry on transient 500s
+          while IFS= read -r -d '' asset; do
             echo "Uploading $asset to $TAG_NAME..."
             uploaded=0
             for attempt in 1 2 3 4 5; do
@@ -255,7 +258,7 @@ jobs:
               echo "ERROR: Failed to upload $asset after 5 attempts."
               exit 1
             fi
-          done
+          done < <(find release-assets -type f -print0)
 
   # --------------------------------------------------------------------------
   # 4. Build & Publish Multi-Arch Docker Container (GHCR)
