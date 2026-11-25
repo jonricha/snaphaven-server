@@ -60,15 +60,14 @@ jobs:
           $TAG = if ("${{ github.ref_name }}" -ne "") { "${{ github.ref_name }}" } else { "v1.0.0" }
           & .\msix\build_msix.ps1 -Tag $TAG -ExecutablePath .\server\snaphaven.exe -OutputDir .\msix\dist
 
-      - name: Upload Windows Release Assets
-        uses: softprops/action-gh-release@v1
+      - name: Upload Windows Release Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: |
+          name: release-windows
+          path: |
             windowsservice/SnapHavenInstaller.exe
             msix/dist/*.msix
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error
 
   # --------------------------------------------------------------------------
   # 2. Build macOS Server (Apple Silicon & Intel)
@@ -150,13 +149,12 @@ jobs:
           path: macservice/SnapHavenServer-MAS.pkg
           if-no-files-found: ignore
 
-      - name: Upload macOS Release Asset
-        uses: softprops/action-gh-release@v1
+      - name: Upload macOS Release Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: macservice/SnapHavenServer-macOS.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: release-macos
+          path: macservice/SnapHavenServer-macOS.tar.gz
+          if-no-files-found: error
 
   # --------------------------------------------------------------------------
   # 3. Build Linux Server (x86_64 Debian .deb & Tarball)
@@ -189,15 +187,75 @@ jobs:
           chmod +x linuxservice/build_deb.sh
           ./linuxservice/build_deb.sh
 
-      - name: Upload Linux Release Assets
-        uses: softprops/action-gh-release@v1
+      - name: Upload Linux Release Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
-          files: |
+          name: release-linux
+          path: |
             linuxservice/snaphaven-server_*.deb
             linuxservice/SnapHavenServer-Linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # 4. Publish Consolidated GitHub Release (with Retry Protection)
+  # --------------------------------------------------------------------------
+  publish-release:
+    name: Publish GitHub Release Assets
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Platform Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create Release & Upload Assets with Retry
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.0' }}
+        run: |
+          set -e
+          ls -lh release-assets/
+
+          # Ensure the GitHub Release exists (with retry for transient GitHub 5xx errors)
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Release $TAG_NAME already exists; syncing target commit."
+              gh release edit "$TAG_NAME" --target "${{ github.sha }}" || true
+              break
+            fi
+            if gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes; then
+              echo "Created release $TAG_NAME."
+              break
+            fi
+            echo "Attempt $attempt to create release failed; retrying in $((attempt * 5))s..."
+            sleep $((attempt * 5))
+          done
+
+          # Upload each asset sequentially with --clobber and retry on transient 500s
+          for asset in release-assets/*; do
+            [ -f "$asset" ] || continue
+            echo "Uploading $asset to $TAG_NAME..."
+            uploaded=0
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "$TAG_NAME" "$asset" --clobber; then
+                uploaded=1
+                echo "Uploaded $asset"
+                break
+              fi
+              echo "Upload attempt $attempt failed for $asset; retrying in $((attempt * 5))s..."
+              sleep $((attempt * 5))
+            done
+            if [ "$uploaded" -ne 1 ]; then
+              echo "ERROR: Failed to upload $asset after 5 attempts."
+              exit 1
+            fi
+          done
 
   # --------------------------------------------------------------------------
   # 4. Build & Publish Multi-Arch Docker Container (GHCR)
